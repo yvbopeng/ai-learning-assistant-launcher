@@ -10,7 +10,7 @@ import {
 } from './type-info';
 import { Channels, MESSAGE_TYPE } from '../ipc-data-type';
 import { isWSLInstall } from '../cmd/is-wsl-install';
-import { wait } from '../util';
+import { onlyAlphaNumericLine, wait } from '../util';
 import { loggerFactory } from '../terminal-log';
 
 const commandLine = new Exec();
@@ -442,23 +442,6 @@ export async function ensurePodmanWorks(
   });
 }
 
-export async function ensureImageReady(
-  service: ServiceName,
-  event: IpcMainEvent,
-  channel: Channels,
-) {
-  await checkAndSetup(
-    async () => await isImageReady(service),
-    async () => await loadImage(service),
-    {
-      event,
-      channel,
-      checkMessage: `检查服务${service}镜像`,
-      setupMessage: `加载镜像${service}`,
-    },
-  );
-}
-
 type AsyncStringFunction = () => Promise<boolean>;
 
 async function checkAndSetup(
@@ -503,12 +486,20 @@ async function checkAndSetup(
       }
     } catch (e) {
       console.error(e);
-      progress &&
-        progress.event.reply(
-          progress.channel,
-          MESSAGE_TYPE.ERROR,
-          setupErrorMessage,
-        );
+      if (progress) {
+        let tip = setupErrorMessage;
+        if (e && e.message) {
+          if (e.message.indexOf('already exists on hypervisor') >= 0) {
+            tip = '检测到已存在的podman，请先卸载podman';
+          } else if (
+            onlyAlphaNumericLine(e.message).indexOf('WSL_E_CONSOLE') >= 0
+          ) {
+            tip =
+              '请打开命令提示符，鼠标右键点击提示符窗口顶部，点击属性，把“使用旧版控制台”前面的勾去掉，点击确定，然后重试';
+          }
+          progress.event.reply(progress.channel, MESSAGE_TYPE.ERROR, tip);
+        }
+      }
       throw e;
     }
   }
@@ -577,10 +568,7 @@ export async function resetPodman() {
     console.warn(e);
   }
   try {
-    await commandLine.exec('wsl.exe', [
-      '--unregister',
-      podMachineName,
-    ]);
+    await commandLine.exec('wsl.exe', ['--unregister', podMachineName]);
   } catch (e) {
     console.warn(e);
   }

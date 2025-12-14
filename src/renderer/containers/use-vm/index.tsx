@@ -1,4 +1,4 @@
-import { notification } from 'antd';
+import { Modal, notification } from 'antd';
 import { useState, useEffect } from 'react';
 import { channel, ActionName, ServiceName } from '../../../main/cmd/type-info';
 import { MESSAGE_TYPE, MessageData } from '../../../main/ipc-data-type';
@@ -42,10 +42,7 @@ export function useVM() {
       channel,
       (messageType: any, data: any) => {
         if (messageType === MESSAGE_TYPE.ERROR) {
-          notification.error({
-            message: data,
-            placement: 'topRight',
-          });
+          Modal.error({ content: data });
           setWSLLoading(false);
           setWSLOperation({ action: 'query', service: 'WSL' });
         } else if (messageType === MESSAGE_TYPE.DATA) {

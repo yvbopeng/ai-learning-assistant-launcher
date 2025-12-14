@@ -12,8 +12,13 @@ export function resolveHtmlPath(htmlFileName: string) {
   return `file://${path.resolve(__dirname, '../renderer/', htmlFileName)}`;
 }
 
-export async function wait(minisecond: number){
-  return new Promise((resolve)=>{
-    setTimeout(resolve, minisecond)
-  })
+export async function wait(minisecond: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, minisecond);
+  });
+}
+
+/** 过滤字符只保留字母数字下划线，解决日志乱码无法识别问题 */
+export function onlyAlphaNumericLine(str: string) {
+  return str.replace(/[^a-zA-Z0-9_/\\]/g, '');
 }

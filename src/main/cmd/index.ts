@@ -222,17 +222,21 @@ export default async function init(ipcMain: IpcMain) {
             );
             return;
           }
-          await ensurePodmanWorks(event, channel);
-          const result = await movePodman(path);
-          if (result.success) {
-            event.reply(
-              channel,
-              MESSAGE_TYPE.DATA,
-              new MessageData(action, serviceName, true),
-            );
-            event.reply(channel, MESSAGE_TYPE.INFO, '成功修改安装位置');
-          } else {
-            event.reply(channel, MESSAGE_TYPE.ERROR, result.errorMessage);
+          try {
+            await ensurePodmanWorks(event, channel);
+            const result = await movePodman(path);
+            if (result.success) {
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, true),
+              );
+              event.reply(channel, MESSAGE_TYPE.INFO, '成功修改安装位置');
+            } else {
+              event.reply(channel, MESSAGE_TYPE.ERROR, result.errorMessage);
+            }
+          } catch (e) {
+            console.error(e);
           }
         } else if (action === 'update') {
           if (serviceName === 'WSL') {
