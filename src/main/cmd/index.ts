@@ -271,6 +271,8 @@ export default async function init(ipcMain: IpcMain) {
                   MESSAGE_TYPE.ERROR,
                   '安装WSL失败，因为Windows系统更新未打开。请打开系统更新后重试。',
                 );
+              } else {
+                event.reply(channel, MESSAGE_TYPE.ERROR, '安装WSL失败');
               }
               return;
             }
@@ -321,11 +323,18 @@ export default async function init(ipcMain: IpcMain) {
 
 export async function installWSL() {
   // WSL 安装需要windows update服务正常
-  const outputStartWindowsUpdate = await commandLine.exec('net', [
-    'start',
-    'wuauserv',
-  ]);
-  console.debug('check windows update', outputStartWindowsUpdate);
+  try {
+    const outputStartWindowsUpdate = await commandLine.exec('net', [
+      'start',
+      'wuauserv',
+    ]);
+    console.debug('check windows update', outputStartWindowsUpdate);
+  } catch (e) {
+    console.error(e);
+    if (e && e.message && e.message.indexOf('1058')) {
+      throw e;
+    }
+  }
 
   try {
     const outputWSLmsi = await commandLine.exec(
