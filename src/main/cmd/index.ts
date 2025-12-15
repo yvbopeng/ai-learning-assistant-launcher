@@ -51,7 +51,7 @@ export default async function init(ipcMain: IpcMain) {
             // 获取仓库路径
             if (vaultId) {
               const vaults = getObsidianVaultConfig();
-              const vault = vaults.find(v => v.id === vaultId);
+              const vault = vaults.find((v) => v.id === vaultId);
               if (vault) {
                 // 获取路径中的最后一个文件夹名称
                 vaultName = path.basename(vault.path);
@@ -60,7 +60,9 @@ export default async function init(ipcMain: IpcMain) {
             try {
               obsidianPath = replaceVarInPath(obsidianPath);
               // 如果有仓库路径，则传递给Obsidian作为参数
-              const args = vaultName ? [`obsidian://open/?vault=${encodeURIComponent(vaultName)}`] : [];
+              const args = vaultName
+                ? [`obsidian://open/?vault=${encodeURIComponent(vaultName)}`]
+                : [];
               const result = commandLine.exec(obsidianPath, args, {});
               // const result = commandLine.exec(obsidianPath, [], {});
               event.reply(channel, MESSAGE_TYPE.INFO, '成功启动obsidian');
@@ -108,7 +110,20 @@ export default async function init(ipcMain: IpcMain) {
               MESSAGE_TYPE.PROGRESS,
               '预计需要10分钟，请耐心等待',
             );
-            const result = await installWSL();
+            let result: boolean;
+            try {
+              result = await installWSL();
+            } catch (e) {
+              console.error(e);
+              if (e && e.message && e.message.indexOf('1058') >= 0) {
+                event.reply(
+                  channel,
+                  MESSAGE_TYPE.ERROR,
+                  '安装WSL失败，因为Windows系统更新未打开',
+                );
+              }
+              return;
+            }
             const version = await wslVersion();
             event.reply(
               channel,
@@ -245,7 +260,20 @@ export default async function init(ipcMain: IpcMain) {
               MESSAGE_TYPE.PROGRESS,
               '预计需要10分钟，请耐心等待',
             );
-            const result = await installWSL();
+            let result: boolean;
+            try {
+              result = await installWSL();
+            } catch (e) {
+              console.error(e);
+              if (e && e.message && e.message.indexOf('1058')) {
+                event.reply(
+                  channel,
+                  MESSAGE_TYPE.ERROR,
+                  '安装WSL失败，因为Windows系统更新未打开。请打开系统更新后重试。',
+                );
+              }
+              return;
+            }
             const version = await wslVersion();
             event.reply(
               channel,
@@ -292,6 +320,13 @@ export default async function init(ipcMain: IpcMain) {
 }
 
 export async function installWSL() {
+  // WSL 安装需要windows update服务正常
+  const outputStartWindowsUpdate = await commandLine.exec('net', [
+    'start',
+    'wuauserv',
+  ]);
+  console.debug('check windows update', outputStartWindowsUpdate);
+
   try {
     const outputWSLmsi = await commandLine.exec(
       path.join(
