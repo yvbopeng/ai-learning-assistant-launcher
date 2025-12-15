@@ -115,13 +115,7 @@ export default async function init(ipcMain: IpcMain) {
               result = await installWSL();
             } catch (e) {
               console.error(e);
-              if (e && e.message && e.message.indexOf('1058') >= 0) {
-                event.reply(
-                  channel,
-                  MESSAGE_TYPE.ERROR,
-                  '安装WSL失败，因为Windows系统更新未打开',
-                );
-              }
+              event.reply(channel, MESSAGE_TYPE.ERROR, e && e.message);
               return;
             }
             const version = await wslVersion();
@@ -265,15 +259,7 @@ export default async function init(ipcMain: IpcMain) {
               result = await installWSL();
             } catch (e) {
               console.error(e);
-              if (e && e.message && e.message.indexOf('1058')) {
-                event.reply(
-                  channel,
-                  MESSAGE_TYPE.ERROR,
-                  '安装WSL失败，因为Windows系统更新未打开。请打开系统更新后重试。',
-                );
-              } else {
-                event.reply(channel, MESSAGE_TYPE.ERROR, '安装WSL失败');
-              }
+              event.reply(channel, MESSAGE_TYPE.ERROR, e && e.message);
               return;
             }
             const version = await wslVersion();
@@ -331,8 +317,10 @@ export async function installWSL() {
     console.debug('check windows update', outputStartWindowsUpdate);
   } catch (e) {
     console.error(e);
-    if (e && e.message && e.message.indexOf('1058')) {
-      throw e;
+    if (e && e.message && e.message.indexOf('1058') >= 0) {
+      throw new Error(
+        '安装WSL失败，因为Windows系统更新未打开。请打开系统更新后重试。',
+      );
     }
   }
 
