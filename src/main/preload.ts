@@ -108,6 +108,8 @@ const mainHandle = {
       logsTrainingServiceHandle,
     );
   },
+  startTorrent: (magnetURI: string, downloadPath?: string) =>
+    ipcRenderer.invoke('torrent:start', magnetURI, downloadPath),
 };
 
 export type MainHandle = typeof mainHandle;
