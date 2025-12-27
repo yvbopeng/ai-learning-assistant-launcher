@@ -18,6 +18,11 @@ import { useTrainingServiceShortcut } from '../../containers/use-training-servic
 import { useLogContainer } from '../../containers/backup';
 import { useVM } from '../../containers/use-vm';
 
+/* 这里开始的引用是测试加入WebTorrent的引用，今后要去除这部分 */
+import { Form, Input, Card, Typography } from 'antd';
+
+/* 从这里结束对WebTorrent的引用依赖 */
+
 export default function Hello() {
   const trainingServiceShortcut = useTrainingServiceShortcut();
   const { exportLogs, setupBackupListener } = useLogContainer();
@@ -25,6 +30,64 @@ export default function Hello() {
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  /* TODO About WebTorrent */
+  const [form] = Form.useForm();
+  const [showTorrentDownloadResult, setShowTorrentDownloadResult] = useState(false);
+    const handleDownloadTorrent = async () => {
+    try {
+      const values = await form.validateFields();
+      // Here you would implement the actual torrent download logic
+      // For now, we'll just simulate a successful test
+      setShowTorrentDownloadResult(true);
+      message.success('下载任务已添加到队列');
+    } catch (error) {
+      setShowTorrentDownloadResult(false);
+      message.error('请检查输入的链接和目录');
+    }
+  };
+  
+    const { Text } = Typography;
+
+    const TorrentDownloadForm = (
+      <Card 
+        title={"使用 magnetURI 下载文件"} 
+        size="small" 
+        style={{ marginBottom: 16 }} 
+      > 
+        <Form form={form} layout="vertical">
+          <Form.Item 
+            name="magnetURI" 
+            label="magnetURI" 
+            rules={[{ required: true, message: '请输入链接' }]}
+          >
+            <Input placeholder="例如: 以magnet:?xt=urn:btih:开头" />
+          </Form.Item>
+
+          <Form.Item 
+            name="downloadPath" 
+            label="下载目录"
+            initialValue="/download"
+          >
+            <Input placeholder="例如: 想要下载到/download" />
+          </Form.Item>
+
+          <Form.Item label="连接测试">
+            <Space>
+              <Button onClick={handleDownloadTorrent}>
+                开始下载
+              </Button>
+              {showTorrentDownloadResult ? 
+                <Text type="success">测试通过</Text> : 
+                <Text type="danger">测试失败</Text>
+              }
+            </Space>
+          </Form.Item>
+        </Form>
+      </Card>
+    );
+
+  /* End WebTorrent */
 
   const {
     isWSLInstalled,
@@ -596,6 +659,9 @@ export default function Hello() {
                 </Button>
               </div>
             </div>
+            {/* TODO Add Download Torrent Input and Button */}
+            {TorrentDownloadForm} 
+            {/* End of the WebTorrent Download test */}
           </div>
         </div>
       </div>
