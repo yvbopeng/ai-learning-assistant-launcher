@@ -649,6 +649,9 @@ export default function Hello() {
                 版本号：{__NPM_PACKAGE_VERSION__} 源码版本：{__COMMIT_HASH__}
               </div>
               <div className="log-export">
+                <NavLink to="/p2p-test">
+                  <Button className="manual-button">P2P测试</Button>
+                </NavLink>
                 <Button
                   className="status-indicator"
                   onClick={handleExportLogs}
@@ -665,7 +668,7 @@ export default function Hello() {
               </div>
             </div>
             {/* TODO Add Download Torrent Input and Button */}
-            {TorrentDownloadForm}
+            {/* {TorrentDownloadForm} */}
             {/* End of the WebTorrent Download test */}
           </div>
         </div>
