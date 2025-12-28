@@ -12,6 +12,7 @@ export const rendererConfig: Configuration = {
     rules,
   },
   plugins: [
+    // This line is about WebTorrent in Browser configuration
     new NodePolyfillPlugin({
       additionalAliases: [
         'path',
@@ -21,9 +22,11 @@ export const rendererConfig: Configuration = {
         'os',
       ]
     }),
+    // This line is about WebTorrent in Browser configuration
     new webpack.ProvidePlugin({
       process: '/process-fast.js',
     }),
+    // This line is about WebTorrent in Browser configuration
     new webpack.DefinePlugin({
       global: 'globalThis',
     }),
@@ -33,6 +36,7 @@ export const rendererConfig: Configuration = {
     extensions: ['.js', '.ts', '.jsx', '.tsx', '.css', '.scss', '.svg'],
     // aliasFields: ['browser'],
     alias: {
+      // Below is about WebTorrent in Browser configuration
       // path: 'path-esm',
       './lib/conn-pool.js': false,
       './lib/utp.cjs': false,
