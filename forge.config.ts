@@ -28,7 +28,11 @@ const config: ForgeConfig = {
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new WebpackPlugin({
-      devContentSecurityPolicy: `default-src 'self' 'unsafe-inline' data:;script-src 'self' 'unsafe-inline' 'unsafe-eval';connect-src 'self' ws://121.40.137.135:8200;`,
+      /* 
+        About WebTorrent：Forge配置此项可以避开CSP
+        TODO 如何向变化的Tracker和对等主机发送请求？
+       */
+      devContentSecurityPolicy: `default-src 'self' 'unsafe-inline' data:;script-src 'self' 'unsafe-inline' 'unsafe-eval';connect-src 'self' ws://127.0.0.1:8000 ws://121.40.137.135:8200;`,
       mainConfig,
       renderer: {
         config: rendererConfig,
