@@ -89,6 +89,6 @@
     "pdf-lib": "^1.17.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "webtorrent": "^1.9.7"
+    "webtorrent": "^2.8.5"
   }
 }
