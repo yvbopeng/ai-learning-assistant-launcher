@@ -19,6 +19,14 @@ import {
   removeTrainingServiceHandle,
   startTrainingServiceHandle,
 } from './training-service/type-info';
+import {
+  logsWebtorrentHandle,
+  pauseWebtorrentHandle,
+  queryWebtorrentHandle,
+  removeWebtorrentHandle,
+  startWebtorrentHandle,
+  TorrentName,
+} from './webtorrent/type-info';
 
 const electronHandler = {
   ipcRenderer: {
@@ -108,8 +116,21 @@ const mainHandle = {
       logsTrainingServiceHandle,
     );
   },
-  startTorrent: (magnetURI: string, downloadPath?: string) =>
-    ipcRenderer.invoke('torrent:start', magnetURI, downloadPath),
+  startWebtorrentHandle: async (torrentName: TorrentName) => {
+    return ipcInvoke(startWebtorrentHandle, torrentName);
+  },
+  queryWebtorrentHandle: async (torrentName: TorrentName) => {
+    return ipcInvoke(queryWebtorrentHandle, torrentName);
+  },
+  pauseWebtorrentHandle: async (torrentName: TorrentName) => {
+    return ipcInvoke(pauseWebtorrentHandle, torrentName);
+  },
+  removeWebtorrentHandle: async (torrentName: TorrentName) => {
+    return ipcInvoke(removeWebtorrentHandle, torrentName);
+  },
+  logsWebtorrentHandle: async (torrentName: TorrentName) => {
+    return ipcInvoke(logsWebtorrentHandle, torrentName);
+  },
 };
 
 export type MainHandle = typeof mainHandle;
