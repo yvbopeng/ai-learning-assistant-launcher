@@ -13,13 +13,16 @@ import WebTorrent, * as allExports from 'webtorrent';
 import path from 'path';
 import { appPath } from '../exec';
 import { existsSync, readFileSync } from 'fs';
+import { cloneDeepWith, clone } from 'lodash';
 
 let client: WebTorrent.Instance | null = null;
 const getWebTorrent = async () => {
-  const WebTorrentClass =
+  const WebTorrentClass: WebTorrent.WebTorrent =
     // @ts-ignore
     (await allExports.default).default;
-  client = new WebTorrentClass() as WebTorrent.Instance;
+  client = new WebTorrentClass({
+    tracker: 'ws://121.40.137.135:8200',
+  });
   return client;
 };
 
@@ -30,42 +33,42 @@ const getWebTorrent = async () => {
 
 export default async function init(ipcMain: IpcMain) {
   client = await getWebTorrent();
-  ipcHandle(ipcMain, startWebtorrentHandle, async (_event, url: string) =>
-    startWebtorrent(url),
+  ipcHandle(ipcMain, startWebtorrentHandle, async (_event, magnet: string) =>
+    startWebtorrent(magnet),
   );
   ipcHandle(ipcMain, queryWebtorrentHandle, async (_event) =>
     queryWebtorrent(),
   );
-  ipcHandle(ipcMain, pauseWebtorrentHandle, async (_event, url: string) =>
-    pauseWebtorrent(url),
+  ipcHandle(ipcMain, pauseWebtorrentHandle, async (_event, magnet: string) =>
+    pauseWebtorrent(magnet),
   );
-  ipcHandle(ipcMain, removeWebtorrentHandle, async (_event, url: string) =>
-    removeWebtorrent(url),
+  ipcHandle(ipcMain, removeWebtorrentHandle, async (_event, magnet: string) =>
+    removeWebtorrent(magnet),
   );
-  ipcHandle(ipcMain, logsWebtorrentHandle, async (_event, url: string) =>
-    logsWebtorrent(url),
+  ipcHandle(ipcMain, logsWebtorrentHandle, async (_event, magnet: string) =>
+    logsWebtorrent(magnet),
+  );
+  ipcHandle(ipcMain, logsWebtorrentHandle, async (_event, magnet: string) =>
+    logsWebtorrent(magnet),
   );
 }
 
-export async function startWebtorrent(url: string) {
-  client.add(
-    url,
-    { path: path.join(appPath, 'external-resources', 'dlc') },
-    (torrent) => {
-      // Got torrent metadata!
-      console.log('Client is downloading:', torrent.infoHash);
-      console.log(`[add] 开始下载 ${torrent.name}`);
-      console.log(`[add] 存储地址 ${torrent.path}`);
-      torrent.on('download', () => {
-        const progressPercent = (torrent.progress * 100).toFixed(2);
-        const downloadedMB = (torrent.downloaded / 1024 / 1024).toFixed(2);
-        const totalMB = (torrent.length / 1024 / 1024).toFixed(2);
-        console.log(
-          `\r📥 下载进度：${downloadedMB} MB / ${totalMB} MB (${progressPercent}%)`,
-        );
-      });
-    },
-  );
+export async function startWebtorrent(magnet: string) {
+  const torrent = await client.get(magnet);
+  if (torrent) {
+    return;
+  } else {
+    client.add(
+      magnet,
+      { path: path.join(appPath, 'external-resources', 'dlc') },
+      (torrent) => {
+        // Got torrent metadata!
+        console.debug('Client is downloading:', torrent.infoHash);
+        console.debug(`[add] 开始下载 ${torrent.name}`);
+        console.debug(`[add] 存储地址 ${torrent.path}`);
+      },
+    );
+  }
 }
 
 export async function queryWebtorrent() {
@@ -84,8 +87,8 @@ const dlcIndexPath = path.join(
   'dlc',
   'dlc-index.json',
 );
-let currentDLCIndex = [];
-// 添加获取大模型配置的函数
+let currentDLCIndex: DLCIndex = [];
+/** 读取DLC索引文件 */
 export function getDLCIndex(): DLCIndex {
   try {
     if (existsSync(dlcIndexPath)) {
@@ -95,9 +98,54 @@ export function getDLCIndex(): DLCIndex {
       const config = JSON.parse(configString) as DLCIndex;
       currentDLCIndex = config;
     }
+    for (const dlc of currentDLCIndex) {
+      for (const v in dlc.versions) {
+        const version = dlc.versions[v];
+        const progress = getProgress(version.magnet);
+        version.progress = progress;
+      }
+    }
     return currentDLCIndex;
   } catch (error) {
     console.error('读取DLC索引失败:', error);
     return [];
   }
+}
+
+function getProgress(magnet?: string) {
+  if (!magnet) {
+    return null;
+  }
+  const params = new URL(magnet).searchParams;
+  const xt = params.get('xt');
+  const torrent = client.torrents.filter((torrent) => {
+    const hash = xt.split(':')?.pop();
+    console.debug('hash', hash, 'infohash', torrent.infoHash);
+    return torrent.infoHash === hash;
+  })[0];
+  if (torrent) {
+    return shallowCopyPrimitives(torrent);
+  }
+  return null;
+}
+
+function shallowCopyPrimitives<T extends object>(obj: T): T {
+  const result = {} as T;
+  if (!obj) {
+    return obj;
+  }
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      const value = obj[key];
+      // 只复制字符串、数字、boolean类型
+      if (
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean'
+      ) {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
 }

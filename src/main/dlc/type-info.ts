@@ -1,4 +1,5 @@
 import type { Channels } from '../ipc-data-type';
+import type WebTorrent from 'webtorrent';
 
 export const channel: Channels = 'webtorrent';
 
@@ -26,9 +27,14 @@ export type DLCId = (typeof dLCIds)[number];
 export type OneDLCInfo = {
   id: DLCId;
   name: string;
-  versions: {
-    '1.0.0': '';
-  };
+  versions: Record<
+    string,
+    {
+      magnet: string;
+      http: string;
+      progress?: WebTorrent.Torrent;
+    }
+  >;
 };
 
 export type DLCIndex = OneDLCInfo[];
