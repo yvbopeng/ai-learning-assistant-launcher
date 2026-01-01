@@ -1,0 +1,44 @@
+[
+  {
+    "id": "PDF_TAR",
+    "name": "PDF包",
+    "versions": {
+      "1.0.0": ""
+    }
+  },
+  {
+    "id": "VOICE_TAR",
+    "name": "Obsidian语音包",
+    "versions": {
+      "1.0.0": ""
+    }
+  },
+  {
+    "id": "TRAINING_TAR",
+    "name": "学科培训包",
+    "versions": {
+      "1.0.0": ""
+    }
+  },
+  {
+    "id": "TRAINING_VOICE_TAR",
+    "name": "学科培训语音包",
+    "versions": {
+      "1.0.0": ""
+    }
+  },
+  {
+    "id": "LMSTUDIO_WINDOWS",
+    "name": "LMSTUDIO",
+    "versions": {
+      "1.0.0": ""
+    }
+  },
+  {
+    "id": "TEST_FILE",
+    "name": "测试文件",
+    "versions": {
+      "1.0.0": "magnet:?xt=urn:btih:f9b78a4446db8ca74f89fd973b35a6eec497b55d&dn=p2p-demo.mp4&tr=ws%3A%2F%2F121.40.137.135%3A8200"
+    }
+  }
+]

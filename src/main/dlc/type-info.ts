@@ -12,13 +12,23 @@ export const queryWebtorrentHandle = `${channel}query`;
 
 export const logsWebtorrentHandle = `${channel}logs`;
 
-export const torrentNames = [
+export const dLCIds = [
   'PDF_TAR',
   'VOICE_TAR',
   'TRAINING_TAR',
   'TRAINING_VOICE_TAR',
   'LMSTUDIO_WINDOWS',
-  '',
+  'TEST_FILE',
 ] as const;
 
-export type TorrentName = (typeof torrentNames)[number];
+export type DLCId = (typeof dLCIds)[number];
+
+export type OneDLCInfo = {
+  id: DLCId;
+  name: string;
+  versions: {
+    '1.0.0': '';
+  };
+};
+
+export type DLCIndex = OneDLCInfo[];

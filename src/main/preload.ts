@@ -20,13 +20,14 @@ import {
   startTrainingServiceHandle,
 } from './training-service/type-info';
 import {
+  DLCIndex,
   logsWebtorrentHandle,
   pauseWebtorrentHandle,
   queryWebtorrentHandle,
   removeWebtorrentHandle,
   startWebtorrentHandle,
-  TorrentName,
-} from './webtorrent/type-info';
+  DLCId,
+} from './dlc/type-info';
 
 const electronHandler = {
   ipcRenderer: {
@@ -116,20 +117,20 @@ const mainHandle = {
       logsTrainingServiceHandle,
     );
   },
-  startWebtorrentHandle: async (torrentName: TorrentName) => {
-    return ipcInvoke(startWebtorrentHandle, torrentName);
+  startWebtorrentHandle: async (url: string) => {
+    return ipcInvoke(startWebtorrentHandle, url);
   },
-  queryWebtorrentHandle: async (torrentName: TorrentName) => {
-    return ipcInvoke(queryWebtorrentHandle, torrentName);
+  queryWebtorrentHandle: async () => {
+    return ipcInvoke<DLCIndex>(queryWebtorrentHandle);
   },
-  pauseWebtorrentHandle: async (torrentName: TorrentName) => {
-    return ipcInvoke(pauseWebtorrentHandle, torrentName);
+  pauseWebtorrentHandle: async (url: string) => {
+    return ipcInvoke(pauseWebtorrentHandle, url);
   },
-  removeWebtorrentHandle: async (torrentName: TorrentName) => {
-    return ipcInvoke(removeWebtorrentHandle, torrentName);
+  removeWebtorrentHandle: async (url: string) => {
+    return ipcInvoke(removeWebtorrentHandle, url);
   },
-  logsWebtorrentHandle: async (torrentName: TorrentName) => {
-    return ipcInvoke(logsWebtorrentHandle, torrentName);
+  logsWebtorrentHandle: async (url: string) => {
+    return ipcInvoke(logsWebtorrentHandle, url);
   },
 };
 
