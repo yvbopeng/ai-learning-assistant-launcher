@@ -1,46 +1,10 @@
 [
   {
-    "id": "PDF_TAR",
-    "name": "PDF包",
-    "versions": {
-      "1.0.0": {
-        
-      }
-    }
-  },
-  {
-    "id": "VOICE_TAR",
-    "name": "Obsidian语音包",
-    "versions": {
-      "1.0.0": {
-        
-      }
-    }
-  },
-  {
     "id": "TRAINING_TAR",
     "name": "学科培训包",
     "versions": {
       "2.0.2": {
         "magnet": "magnet:?xt=urn:btih:7bac2d2a443c9747f49e9b41439b751d628a36bf&dn=ala-training-v2.0.2.tar&tr=ws%3A%2F%2F121.40.137.135%3A8200"
-      }
-    }
-  },
-  {
-    "id": "TRAINING_VOICE_TAR",
-    "name": "学科培训语音包",
-    "versions": {
-      "1.0.0": {
-        
-      }
-    }
-  },
-  {
-    "id": "LMSTUDIO_WINDOWS",
-    "name": "LMSTUDIO",
-    "versions": {
-      "1.0.0": {
-
       }
     }
   },

@@ -70,44 +70,33 @@ const config: ForgeConfig = {
 
       const buildPath = outputPaths[0];
       const copyRules = [path.join(__dirname, 'external-resources', '**')];
+      const bigFileSuffix = [
+        '*.exe',
+        '*.msi',
+        '*.tar.zst',
+        '*.tar.gz',
+        '*.tar',
+        '*.mp4',
+      ];
       if (process.env.MAKE_MINI) {
-        copyRules.push(
-          '!' +
-            path.join(
-              __dirname,
-              'external-resources',
-              'ai-assistant-backend',
-              '*.exe',
-            ),
-        );
-        copyRules.push(
-          '!' +
-            path.join(
-              __dirname,
-              'external-resources',
-              'ai-assistant-backend',
-              '*.msi',
-            ),
-        );
-        copyRules.push(
-          '!' +
-            path.join(
-              __dirname,
-              'external-resources',
-              'ai-assistant-backend',
-              '*.tar.zst',
-            ),
-        );
-        copyRules.push(
-          '!' +
-            path.join(
-              __dirname,
-              'external-resources',
-              'ai-assistant-backend',
-              '*.tar.gz',
-            ),
-        );
+        bigFileSuffix.forEach((suffix) => {
+          copyRules.push(
+            '!' +
+              path.join(
+                __dirname,
+                'external-resources',
+                'ai-assistant-backend',
+                suffix,
+              ),
+          );
+        });
       }
+      // DLC内的大文件不打到包内
+      bigFileSuffix.forEach((suffix) => {
+        copyRules.push(
+          '!' + path.join(__dirname, 'external-resources', 'dlc', '**', suffix),
+        );
+      });
       try {
         await cpy(copyRules, path.join(buildPath, 'external-resources'));
       } catch (e) {
