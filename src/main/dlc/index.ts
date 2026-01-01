@@ -12,7 +12,7 @@ import { ipcHandle } from '../ipc-util';
 import WebTorrent, * as allExports from 'webtorrent';
 import path from 'path';
 import { appPath } from '../exec';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { cloneDeepWith, clone } from 'lodash';
 
 let client: WebTorrent.Instance | null = null;
@@ -55,19 +55,38 @@ export default async function init(ipcMain: IpcMain) {
 
 export async function startWebtorrent(magnet: string) {
   const torrent = await client.get(magnet);
+  const dLCInfo = getIndexVersionByMegnet(magnet);
+
   if (torrent) {
+    torrent.resume();
     return;
   } else {
-    client.add(
-      magnet,
-      { path: path.join(appPath, 'external-resources', 'dlc') },
-      (torrent) => {
-        // Got torrent metadata!
-        console.debug('Client is downloading:', torrent.infoHash);
-        console.debug(`[add] 开始下载 ${torrent.name}`);
-        console.debug(`[add] 存储地址 ${torrent.path}`);
-      },
-    );
+    if (dLCInfo) {
+      const filePath = path.join(
+        appPath,
+        'external-resources',
+        'dlc',
+        dLCInfo.dlc.id,
+        dLCInfo.version,
+      );
+      if (!existsSync(filePath)) {
+        mkdirSync(filePath, { recursive: true });
+      }
+      client.add(
+        magnet,
+        {
+          path: filePath,
+        },
+        (torrent) => {
+          // Got torrent metadata!
+          console.debug('Client is downloading:', torrent.infoHash);
+          console.debug(`[add] 开始下载 ${torrent.name}`);
+          console.debug(`[add] 存储地址 ${torrent.path}`);
+        },
+      );
+    } else {
+      console.warn('没找到链接对应的索引信息', magnet);
+    }
   }
 }
 
@@ -75,11 +94,30 @@ export async function queryWebtorrent() {
   return getDLCIndex();
 }
 
-export async function pauseWebtorrent(url: string) {}
+export async function pauseWebtorrent(magnet: string) {
+  const torrent = await client.get(magnet);
+  if (torrent) {
+    torrent.pause();
+  }
+}
 
-export async function removeWebtorrent(url: string) {}
+export async function removeWebtorrent(magnet: string) {
+  const torrent = await client.get(magnet);
+  if (torrent) {
+    torrent.pause();
+    for (const file of torrent.files) {
+      const fullPath = path.join(torrent.path, file.path);
+      console.debug('deleteing', fullPath);
+      if (existsSync(fullPath)) {
+        unlinkSync(fullPath);
+        console.debug('deleted', fullPath);
+      }
+    }
+    torrent.destroy();
+  }
+}
 
-export async function logsWebtorrent(url: string) {}
+export async function logsWebtorrent(magnet: string) {}
 
 const dlcIndexPath = path.join(
   appPath,
@@ -112,6 +150,21 @@ export function getDLCIndex(): DLCIndex {
   }
 }
 
+export function getIndexVersionByMegnet(magnet: string) {
+  const dLCIndex = getDLCIndex();
+  for (const dlc of dLCIndex) {
+    for (const v in dlc.versions) {
+      const version = dlc.versions[v];
+      if (version.magnet === magnet) {
+        return {
+          dlc,
+          version: v,
+        };
+      }
+    }
+  }
+}
+
 function getProgress(magnet?: string) {
   if (!magnet) {
     return null;
@@ -120,7 +173,7 @@ function getProgress(magnet?: string) {
   const xt = params.get('xt');
   const torrent = client.torrents.filter((torrent) => {
     const hash = xt.split(':')?.pop();
-    console.debug('hash', hash, 'infohash', torrent.infoHash);
+    // console.debug('hash', hash, 'infohash', torrent.infoHash);
     return torrent.infoHash === hash;
   })[0];
   if (torrent) {
