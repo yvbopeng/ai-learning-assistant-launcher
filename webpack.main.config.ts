@@ -1,8 +1,9 @@
-import type { Configuration } from 'webpack';
+import { type Configuration } from 'webpack';
 
 import { rules } from './webpack.rules';
 import { plugins } from './webpack.plugins';
 import CopyPlugin from 'copy-webpack-plugin';
+import TerserPlugin from 'terser-webpack-plugin';
 
 export const mainConfig: Configuration = {
   /**
@@ -30,5 +31,12 @@ export const mainConfig: Configuration = {
   },
   resolve: {
     extensions: ['.js', '.ts', '.jsx', '.tsx', '.css', '.scss', '.json', '.svg'],
+  },
+  optimization: {
+    minimizer: [
+      new TerserPlugin({
+        exclude: /node_modules\/node-datachannel\/test/,
+      }),
+    ],
   },
 };
