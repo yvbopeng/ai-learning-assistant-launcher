@@ -39,65 +39,67 @@ export default function P2PTest() {
   }, [refreshTrigger, setRefreshTrigger]);
   return (
     <table>
-      {dLCIndex.map((dlc) => {
-        const versions = [];
-        for (const key in dlc.versions) {
-          const version = dlc.versions[key];
-          versions.push(
-            <tr>
-              <td>
-                {dlc.name}
-                {key}
-              </td>
-              <td>
-                <textarea value={JSON.stringify(version.progress, null, 2)} />
-              </td>
-              <td>{getState(version)}</td>
-              <td>
-                {(getState(version) === '未开始' ||
-                  getState(version) === '已暂停下载' ||
-                  getState(version) === '已暂停做种') && (
-                  <Button
-                    onClick={() =>
-                      window.mainHandle.startWebtorrentHandle(
-                        dlc.versions[key].magnet,
-                      )
-                    }
-                  >
-                    {getState(version) === '已暂停做种'
-                      ? '开始做种'
-                      : '开始下载'}
-                  </Button>
-                )}
-                {(getState(version) === '做种中' ||
-                  getState(version) === '下载中') && (
-                  <Button
-                    onClick={() =>
-                      window.mainHandle.pauseWebtorrentHandle(
-                        dlc.versions[key].magnet,
-                      )
-                    }
-                  >
-                    {getState(version) === '做种中' ? '停止做种' : '停止下载'}
-                  </Button>
-                )}
-                {getState(version) !== '未开始' && (
-                  <Button
-                    onClick={() =>
-                      window.mainHandle.removeWebtorrentHandle(
-                        dlc.versions[key].magnet,
-                      )
-                    }
-                  >
-                    删除文件
-                  </Button>
-                )}
-              </td>
-            </tr>,
-          );
-        }
-        return versions;
-      })}
+      <tbody>
+        {dLCIndex.flatMap((dlc) => {
+          const versions = [];
+          for (const key in dlc.versions) {
+            const version = dlc.versions[key];
+            versions.push(
+              <tr>
+                <td>
+                  {dlc.name}
+                  {key}
+                </td>
+                <td>
+                  <textarea value={JSON.stringify(version.progress, null, 2)} />
+                </td>
+                <td>{getState(version)}</td>
+                <td>
+                  {(getState(version) === '未开始' ||
+                    getState(version) === '已暂停下载' ||
+                    getState(version) === '已暂停做种') && (
+                    <Button
+                      onClick={() =>
+                        window.mainHandle.startWebtorrentHandle(
+                          dlc.versions[key].magnet,
+                        )
+                      }
+                    >
+                      {getState(version) === '已暂停做种'
+                        ? '开始做种'
+                        : '开始下载'}
+                    </Button>
+                  )}
+                  {(getState(version) === '做种中' ||
+                    getState(version) === '下载中') && (
+                    <Button
+                      onClick={() =>
+                        window.mainHandle.pauseWebtorrentHandle(
+                          dlc.versions[key].magnet,
+                        )
+                      }
+                    >
+                      {getState(version) === '做种中' ? '停止做种' : '停止下载'}
+                    </Button>
+                  )}
+                  {getState(version) !== '未开始' && (
+                    <Button
+                      onClick={() =>
+                        window.mainHandle.removeWebtorrentHandle(
+                          dlc.versions[key].magnet,
+                        )
+                      }
+                    >
+                      删除文件
+                    </Button>
+                  )}
+                </td>
+              </tr>,
+            );
+          }
+          return versions;
+        })}
+      </tbody>
     </table>
   );
 }
