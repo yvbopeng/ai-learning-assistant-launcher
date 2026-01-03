@@ -17,9 +17,14 @@ const getWebTorrent = async () => {
   try {
     const ac = new AbortController();
     const t = setTimeout(ac.abort, 3000);
-    const stuns = await (await fetch('https://hub.gitmirror.com/raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt', { signal: ac.signal })).text();
+    const stuns = await (
+      await fetch(
+        'https://hub.gitmirror.com/raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt',
+        { signal: ac.signal },
+      )
+    ).text();
     clearTimeout(t);
-    iceServers = stuns.split('\n').map(urls => ({ urls }));
+    iceServers = stuns.split('\n').map((urls) => ({ urls }));
   } catch (error) {
     console.log('获取公共stun失败，使用默认stun');
   }
