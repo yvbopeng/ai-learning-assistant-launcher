@@ -21,7 +21,15 @@ const getWebTorrent = async () => {
     // @ts-ignore
     (await allExports.default).default;
   client = new WebTorrentClass({
-    tracker: 'ws://121.40.137.135:8200',
+    tracker: {
+      // WebRTC 相关的配置放在这里
+      rtcConfig: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }, // Google (可选)
+        ],
+      },
+      announce: ['ws://121.40.137.135:8200'],
+    },
   });
   return client;
 };
