@@ -40,7 +40,7 @@ const getWebTorrent = async () => {
   console.log(iceServers);
 
   client = new WebTorrentClass({
-    lsd: false,
+    lsd: true,
     tracker: {
       // WebRTC 相关的配置放在这里
       rtcConfig: {
