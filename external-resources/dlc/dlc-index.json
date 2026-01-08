@@ -3,11 +3,11 @@
     "id": "TRAINING_TAR",
     "name": "学科培训包",
     "versions": {
-      "2.0.1": {
-        "magnet": "magnet:?xt=urn:btih:a7f8c85dcef68ae7958f0f3548603ea9016897df&dn=ala-training-v2.0.0.tar&tr=ws%3A%2F%2F121.40.137.135%3A8200"
+      "2.0.0": {
+        "magnet": "magnet:?xt=urn:btih:a7f8c85dcef68ae7958f0f3548603ea9016897df&dn=ala-training-v2.0.0.tar&tr=wss%3A%2F%2F114.66.58.95%3A17853%2Fannounce"
       },
       "2.0.2": {
-        "magnet": "magnet:?xt=urn:btih:98995512a1cf581a1baea19132b1a6550ec424fc&dn=ala-training-v2.0.2.tar&tr=ws%3A%2F%2F121.40.137.135%3A8200"
+        "magnet": "magnet:?xt=urn:btih:98995512a1cf581a1baea19132b1a6550ec424fc&dn=ala-training-v2.0.2.tar&tr=wss%3A%2F%2F114.66.58.95%3A17853%2Fannounce"
       }
     }
   },
@@ -16,7 +16,7 @@
     "name": "测试文件",
     "versions": {
       "1.0.0": {
-        "magnet": "magnet:?xt=urn:btih:f9b78a4446db8ca74f89fd973b35a6eec497b55d&dn=p2p-demo.mp4&tr=ws%3A%2F%2F121.40.137.135%3A8200"
+        "magnet": "magnet:?xt=urn:btih:f9b78a4446db8ca74f89fd973b35a6eec497b55d&dn=p2p-demo.mp4&tr=wss%3A%2F%2F114.66.58.95%3A17853%2Fannounce"
       }
     }
   }
