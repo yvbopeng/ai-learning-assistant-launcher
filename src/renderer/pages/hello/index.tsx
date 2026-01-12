@@ -191,6 +191,12 @@ export default function Hello() {
     setTrainingServiceRemoving(false);
   };
 
+  const updateCourseTrainingService = async () => {
+    setTrainingServiceStarting(true);
+    await trainingServiceShortcut.updateCourse();
+    setTrainingServiceStarting(false);
+  };
+
   const wslStatusText = () => {
     if (!vTReady) {
       return '请在BIOS开启虚拟化';
@@ -546,6 +552,18 @@ export default function Hello() {
                         ? '安装'
                         : '开始'}
                     </Button>
+                    {trainingServiceShortcut.state !== '还未安装' && (
+                      <Button
+                        className="feature-button"
+                        block
+                        size="large"
+                        onClick={updateCourseTrainingService}
+                        loading={trainingServiceRemoving}
+                        disabled={!isPodmanInstalled || wslLoading}
+                      >
+                        更新课程
+                      </Button>
+                    )}
                     {trainingServiceShortcut.state !== '还未安装' && (
                       <Button
                         className="feature-button"

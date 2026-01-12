@@ -17,6 +17,7 @@ import {
   installTrainingServiceHandle,
   logsTrainingServiceHandle,
   removeTrainingServiceHandle,
+  updateCourseTrainingServiceHandle,
   startTrainingServiceHandle,
 } from './training-service/type-info';
 import {
@@ -111,6 +112,9 @@ const mainHandle = {
   },
   removeTrainingServiceHandle: async () => {
     return ipcInvoke(removeTrainingServiceHandle);
+  },
+  updateCourseTrainingServiceHandle: async () => {
+    return ipcInvoke(updateCourseTrainingServiceHandle);
   },
   logsTrainingServiceHandle: async () => {
     return ipcInvoke<{ imageId: string; logs: string }>(

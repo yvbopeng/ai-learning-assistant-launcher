@@ -4,6 +4,7 @@ import {
   logsTrainingServiceHandle,
   removeTrainingServiceHandle,
   startTrainingServiceHandle,
+  updateCourseTrainingServiceHandle,
   trainingWebURL,
 } from './type-info';
 import { ipcHandle } from '../ipc-util';
@@ -15,6 +16,7 @@ import {
   startService,
   stopService,
 } from '../podman-desktop/simple-container-manage';
+import { getDLCIndex } from '../dlc';
 
 // 全局变量存储trainingWindow实例
 let trainingWindow: BrowserWindow | null = null;
@@ -31,6 +33,9 @@ export default async function init(ipcMain: IpcMain) {
   );
   ipcHandle(ipcMain, logsTrainingServiceHandle, async (_event) =>
     logsTrainingService(),
+  );
+  ipcHandle(ipcMain, updateCourseTrainingServiceHandle, async (_event) =>
+    updateCourseTrainingService(),
   );
 }
 
@@ -78,4 +83,8 @@ export async function startTrainingService() {
     createWindow();
   }
   return { someData: 'data1' };
+}
+
+export async function updateCourseTrainingService() {
+  getDLCIndex()
 }

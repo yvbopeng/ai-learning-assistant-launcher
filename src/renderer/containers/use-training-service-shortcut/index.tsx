@@ -71,6 +71,13 @@ export function useTrainingServiceShortcut() {
     }
   };
 
+  const updateCourse = async () => {
+    if (containerInfos[0].state !== '还未安装') {
+      await window.mainHandle.updateCourseTrainingServiceHandle();
+      setDockerDatatrigger(dockerDatatrigger + 1);
+    }
+  };
+
   const downloadLogs = async () => {
     const serviceName = 'TRAINING';
     const { logs, imageId } =
@@ -94,6 +101,7 @@ export function useTrainingServiceShortcut() {
     state: containerInfos[0].state,
     start,
     remove,
+    updateCourse,
     initing,
     downloadLogs,
   };

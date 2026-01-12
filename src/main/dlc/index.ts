@@ -6,6 +6,8 @@ import {
   pauseWebtorrentHandle,
   removeWebtorrentHandle,
   DLCIndex,
+  DLCId,
+  OneDLCInfo,
 } from './type-info';
 import { ipcHandle } from '../ipc-util';
 import WebTorrent, * as allExports from 'webtorrent';
@@ -22,7 +24,7 @@ const getWebTorrent = async () => {
     // @ts-ignore
     (await allExports.default).default;
 
-  const iceServers = [{ urls: 'stun:114.66.58.95:19244' }];
+  const iceServers = [{ urls: 'stun:learning.panchuantech.cn:19244' }];
   // try {
   //   const ac = new AbortController();
   //   const t = setTimeout(ac.abort, 3000);
@@ -46,7 +48,7 @@ const getWebTorrent = async () => {
       rtcConfig: {
         iceServers,
       } as RTCConfiguration,
-      announce: ['wss://114.66.58.95:17853/announce'],
+      announce: ['wss://learning.panchuantech.cn/announce'],
     },
   });
 
@@ -175,6 +177,30 @@ export function getDLCIndex(): DLCIndex {
     console.error('读取DLC索引失败:', error);
     return [];
   }
+}
+
+export function getDLCFromDLCIndex(id: DLCId): OneDLCInfo {
+  const dlcIndex = getDLCIndex();
+  const num = dlcIndex.findIndex((dlc) => dlc.id === id);
+  if (num >= 0) {
+    return dlcIndex[num];
+  } else {
+    throw new Error(`找不到${id}的信息`);
+  }
+}
+
+export function getLatestVersionFromDLCIndex(
+  id: DLCId,
+): OneDLCInfo['versions'][string] {
+  const dlc = getDLCFromDLCIndex(id);
+  // TODO 帮忙返回dlc.versions 中版本最新的一个对象
+  return dlc.versions['2.0.0'];
+}
+
+export function isLatest(id: DLCId, version: string): boolean {
+  const dlc = getDLCFromDLCIndex(id);
+  // TODO 帮忙检查version是否是dlc.versions中最新的版本
+  return false;
 }
 
 export function getIndexVersionByMegnet(magnet: string) {

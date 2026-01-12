@@ -18,6 +18,7 @@ export const dLCIds = [
   'VOICE_TAR',
   'TRAINING_TAR',
   'TRAINING_VOICE_TAR',
+  'TRAINING_COURSE',
   'LMSTUDIO_WINDOWS',
   'TEST_FILE',
 ] as const;
@@ -33,6 +34,8 @@ export type OneDLCInfo = {
       magnet: string;
       http: string;
       progress?: WebTorrent.Torrent;
+      comment?: string;
+      riquire: Record<string, string>;
     }
   >;
 };
