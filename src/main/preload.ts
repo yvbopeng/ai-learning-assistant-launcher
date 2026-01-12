@@ -19,6 +19,7 @@ import {
   removeTrainingServiceHandle,
   updateCourseTrainingServiceHandle,
   startTrainingServiceHandle,
+  courseHaveNewVersionTrainingServiceHandle,
 } from './training-service/type-info';
 import {
   DLCIndex,
@@ -115,6 +116,9 @@ const mainHandle = {
   },
   updateCourseTrainingServiceHandle: async () => {
     return ipcInvoke(updateCourseTrainingServiceHandle);
+  },
+  courseHaveNewVersionTrainingServiceHandle: async () => {
+    return ipcInvoke<boolean>(courseHaveNewVersionTrainingServiceHandle);
   },
   logsTrainingServiceHandle: async () => {
     return ipcInvoke<{ imageId: string; logs: string }>(

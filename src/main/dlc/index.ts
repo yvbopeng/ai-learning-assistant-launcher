@@ -15,6 +15,7 @@ import path from 'path';
 import { appPath } from '../exec';
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import patchCA from './patch-ca';
+import { compare, valid } from 'semver';
 
 patchCA();
 
@@ -73,9 +74,6 @@ export default async function init(ipcMain: IpcMain) {
   );
   ipcHandle(ipcMain, removeWebtorrentHandle, async (_event, magnet: string) =>
     removeWebtorrent(magnet),
-  );
-  ipcHandle(ipcMain, logsWebtorrentHandle, async (_event, magnet: string) =>
-    logsWebtorrent(magnet),
   );
   ipcHandle(ipcMain, logsWebtorrentHandle, async (_event, magnet: string) =>
     logsWebtorrent(magnet),
@@ -146,7 +144,11 @@ export async function removeWebtorrent(magnet: string) {
   }
 }
 
-export async function logsWebtorrent(magnet: string) {}
+export async function logsWebtorrent(magnet: string) {
+  // TODO: 实现WebTorrent日志功能
+  console.debug(`请求日志 for magnet: ${magnet}`);
+  return null;
+}
 
 const dlcIndexPath = path.join(
   appPath,
@@ -189,18 +191,44 @@ export function getDLCFromDLCIndex(id: DLCId): OneDLCInfo {
   }
 }
 
-export function getLatestVersionFromDLCIndex(
-  id: DLCId,
-): OneDLCInfo['versions'][string] {
+export function getLatestVersion(id: DLCId): {
+  version: string;
+  dlcInfo: OneDLCInfo['versions'][string];
+} {
   const dlc = getDLCFromDLCIndex(id);
-  // TODO 帮忙返回dlc.versions 中版本最新的一个对象
-  return dlc.versions['2.0.0'];
+  const versions = Object.keys(dlc.versions);
+
+  if (versions.length === 0) {
+    throw new Error(`DLC ${id} 没有可用的版本`);
+  }
+
+  // 找到最新的版本
+  let latestVersion = versions[0];
+  for (let i = 1; i < versions.length; i++) {
+    if (compare(versions[i], latestVersion) > 0) {
+      latestVersion = versions[i];
+    }
+  }
+
+  return {
+    version: latestVersion,
+    dlcInfo: dlc.versions[latestVersion],
+  };
 }
 
-export function isLatest(id: DLCId, version: string): boolean {
+export function isLatestVersion(id: DLCId, version: string): boolean {
   const dlc = getDLCFromDLCIndex(id);
-  // TODO 帮忙检查version是否是dlc.versions中最新的版本
-  return false;
+  const versions = Object.keys(dlc.versions);
+
+  if (versions.length === 0) {
+    return false;
+  }
+
+  // 找到最新的版本
+  const latestVersion = getLatestVersion(id).version;
+
+  // 比较给定的版本是否等于最新版本
+  return compare(version, latestVersion) === 0;
 }
 
 export function getIndexVersionByMegnet(magnet: string) {

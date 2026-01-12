@@ -6,6 +6,7 @@ import {
   startTrainingServiceHandle,
   updateCourseTrainingServiceHandle,
   trainingWebURL,
+  courseHaveNewVersionTrainingServiceHandle,
 } from './type-info';
 import { ipcHandle } from '../ipc-util';
 import {
@@ -16,7 +17,12 @@ import {
   startService,
   stopService,
 } from '../podman-desktop/simple-container-manage';
-import { getDLCIndex } from '../dlc';
+import {
+  getDLCIndex,
+  getLatestVersion,
+  isLatestVersion,
+  startWebtorrent,
+} from '../dlc';
 
 // 全局变量存储trainingWindow实例
 let trainingWindow: BrowserWindow | null = null;
@@ -36,6 +42,11 @@ export default async function init(ipcMain: IpcMain) {
   );
   ipcHandle(ipcMain, updateCourseTrainingServiceHandle, async (_event) =>
     updateCourseTrainingService(),
+  );
+  ipcHandle(
+    ipcMain,
+    courseHaveNewVersionTrainingServiceHandle,
+    async (_event) => courseHaveNewVersionTrainingService(),
   );
 }
 
@@ -86,5 +97,16 @@ export async function startTrainingService() {
 }
 
 export async function updateCourseTrainingService() {
-  getDLCIndex()
+  if (courseHaveNewVersionTrainingService()) {
+    const latestVersion = getLatestVersion('TRAINING_COURSE');
+    await startWebtorrent(latestVersion.dlcInfo.magnet);
+  }
+}
+
+export async function getCourseVersion() {
+  return '2.0.0';
+}
+
+export async function courseHaveNewVersionTrainingService() {
+  return !isLatestVersion('TRAINING_COURSE', await getCourseVersion());
 }

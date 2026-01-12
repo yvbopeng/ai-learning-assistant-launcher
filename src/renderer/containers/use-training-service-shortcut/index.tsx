@@ -4,7 +4,7 @@ import {
   ServiceName,
 } from '../../../main/podman-desktop/type-info';
 import useDocker from '../use-docker';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { downloadLogsAsText } from '../../web-utils';
 
@@ -33,10 +33,21 @@ export function useTrainingServiceShortcut() {
   const navigate = useNavigate();
   const [dockerDatatrigger, setDockerDatatrigger] = useState(1);
   const { containers, action, loading, initing } = useDocker(dockerDatatrigger);
+  const [courseHaveNewVersion, setCourseHaveNewVersion] = useState(false);
 
   const trainingContainer = containers.filter(
     (item) => item.Names.indexOf(containerNameDict.TRAINING) >= 0,
   )[0];
+
+  useEffect(() => {
+    window.mainHandle
+      .courseHaveNewVersionTrainingServiceHandle()
+      .then((haveNew) => {
+        setCourseHaveNewVersion(haveNew);
+      });
+
+    return () => {};
+  }, []);
 
   const containerInfos: ContainerItem[] = [
     {
@@ -101,8 +112,9 @@ export function useTrainingServiceShortcut() {
     state: containerInfos[0].state,
     start,
     remove,
-    updateCourse,
     initing,
+    courseHaveNewVersion,
+    updateCourse,
     downloadLogs,
   };
 }

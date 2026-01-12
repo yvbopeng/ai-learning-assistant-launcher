@@ -18,7 +18,6 @@ import { useTrainingServiceShortcut } from '../../containers/use-training-servic
 import { useLogContainer } from '../../containers/backup';
 import { useVM } from '../../containers/use-vm';
 
-
 export default function Hello() {
   const trainingServiceShortcut = useTrainingServiceShortcut();
   const { exportLogs, setupBackupListener } = useLogContainer();
@@ -113,7 +112,12 @@ export default function Hello() {
 
   // 新增：打开使用文档
   const openUserManual = () => {
-    window.electron?.ipcRenderer.sendMessage('open-external-url', 'open', 'browser', 'https://docs.qq.com/aio/DS1NnZkZkdkFiSVdP');
+    window.electron?.ipcRenderer.sendMessage(
+      'open-external-url',
+      'open',
+      'browser',
+      'https://docs.qq.com/aio/DS1NnZkZkdkFiSVdP',
+    );
   };
   // 新增：打开使用文档
   // const openUserManual = async () => {
@@ -552,18 +556,19 @@ export default function Hello() {
                         ? '安装'
                         : '开始'}
                     </Button>
-                    {trainingServiceShortcut.state !== '还未安装' && (
-                      <Button
-                        className="feature-button"
-                        block
-                        size="large"
-                        onClick={updateCourseTrainingService}
-                        loading={trainingServiceRemoving}
-                        disabled={!isPodmanInstalled || wslLoading}
-                      >
-                        更新课程
-                      </Button>
-                    )}
+                    {trainingServiceShortcut.state !== '还未安装' &&
+                      trainingServiceShortcut.courseHaveNewVersion && (
+                        <Button
+                          className="feature-button"
+                          block
+                          size="large"
+                          onClick={updateCourseTrainingService}
+                          loading={trainingServiceRemoving}
+                          disabled={!isPodmanInstalled || wslLoading}
+                        >
+                          更新课程
+                        </Button>
+                      )}
                     {trainingServiceShortcut.state !== '还未安装' && (
                       <Button
                         className="feature-button"
