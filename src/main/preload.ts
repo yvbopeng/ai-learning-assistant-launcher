@@ -118,7 +118,11 @@ const mainHandle = {
     return ipcInvoke(updateCourseTrainingServiceHandle);
   },
   courseHaveNewVersionTrainingServiceHandle: async () => {
-    return ipcInvoke<boolean>(courseHaveNewVersionTrainingServiceHandle);
+    return ipcInvoke<{
+      currentVersion: string;
+      latestVersion: string;
+      haveNew: boolean;
+    }>(courseHaveNewVersionTrainingServiceHandle);
   },
   logsTrainingServiceHandle: async () => {
     return ipcInvoke<{ imageId: string; logs: string }>(

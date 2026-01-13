@@ -126,19 +126,22 @@ export function TorrentProgress(props: { id: DLCId; version: string }) {
       <Progress
         percent={progressData.percent}
         status={progressData.percent >= 100 ? 'success' : 'active'}
+        showInfo={false}
       />
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 12,
-          color: '#666',
-          display: 'flex',
-          justifyContent: 'space-between',
-        }}
-      >
-        <div>进度: {progressData.percent.toFixed(2)}%</div>
-        <div>剩余时间: {formatTime(progressData.timeRemaining)}</div>
-      </div>
+      {progressData.percent < 100 && (
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 12,
+            color: '#666',
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div>速度: {formatSpeed(progressData.downloadSpeed)}</div>
+          <div>剩余时间: {formatTime(progressData.timeRemaining)}</div>
+        </div>
+      )}
     </div>
   );
 }

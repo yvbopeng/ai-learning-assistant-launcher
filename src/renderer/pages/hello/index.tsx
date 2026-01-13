@@ -198,8 +198,11 @@ export default function Hello() {
 
   const updateCourseTrainingService = async () => {
     setTrainingServiceStarting(true);
+    setTrainingServiceRemoving(true);
     await trainingServiceShortcut.updateCourse();
+    message.success('学科培训更新成功');
     setTrainingServiceStarting(false);
+    setTrainingServiceRemoving(false);
   };
 
   const wslStatusText = () => {
@@ -533,33 +536,46 @@ export default function Hello() {
                     </div>
                     <div className="feature-description">
                       <p className="description-text">
-                        AI辅助的学科知识培训，学员建档设立目标，帮助补齐技能知识短板
+                        AI辅助的学科知识培训，学员建档设立目标，帮助补齐技能知识短板。
+                        {trainingServiceShortcut.state !== '还未安装' &&
+                          `当前版本：${trainingServiceShortcut.versionInfo.currentVersion}`}
                       </p>
                     </div>
-                    <TorrentProgress id={'TRAINING_COURSE'} version={'2.0.2'} />
+                    {trainingServiceShortcut.versionInfo.haveNew && (
+                      <TorrentProgress
+                        id={'TRAINING_TAR'}
+                        version={
+                          trainingServiceShortcut.versionInfo.latestVersion
+                        }
+                      />
+                    )}
                   </div>
                   <div className="feature-button-container">
-                    <Button
-                      className="feature-button"
-                      block
-                      size="large"
-                      onClick={openTrainingService}
-                      loading={
-                        trainingServiceStarting ||
-                        trainingServiceShortcut.initing
-                      }
-                      disabled={
-                        trainingServiceRemoving ||
-                        !isPodmanInstalled ||
-                        wslLoading
-                      }
-                    >
-                      {trainingServiceShortcut.state === '还未安装'
-                        ? '安装'
-                        : '开始'}
-                    </Button>
+                    {((trainingServiceShortcut.state !== '还未安装' &&
+                      !trainingServiceShortcut.versionInfo.haveNew) ||
+                      trainingServiceShortcut.state === '还未安装') && (
+                      <Button
+                        className="feature-button"
+                        block
+                        size="large"
+                        onClick={openTrainingService}
+                        loading={
+                          trainingServiceStarting ||
+                          trainingServiceShortcut.initing
+                        }
+                        disabled={
+                          trainingServiceRemoving ||
+                          !isPodmanInstalled ||
+                          wslLoading
+                        }
+                      >
+                        {trainingServiceShortcut.state === '还未安装'
+                          ? '安装'
+                          : '开始'}
+                      </Button>
+                    )}
                     {trainingServiceShortcut.state !== '还未安装' &&
-                      trainingServiceShortcut.courseHaveNewVersion && (
+                      trainingServiceShortcut.versionInfo.haveNew && (
                         <Button
                           className="feature-button"
                           block

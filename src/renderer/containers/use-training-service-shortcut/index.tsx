@@ -33,7 +33,15 @@ export function useTrainingServiceShortcut() {
   const navigate = useNavigate();
   const [dockerDatatrigger, setDockerDatatrigger] = useState(1);
   const { containers, action, loading, initing } = useDocker(dockerDatatrigger);
-  const [courseHaveNewVersion, setCourseHaveNewVersion] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    haveNew: boolean;
+  }>({
+    currentVersion: '0.0.0',
+    latestVersion: '0.0.0',
+    haveNew: false,
+  });
 
   const trainingContainer = containers.filter(
     (item) => item.Names.indexOf(containerNameDict.TRAINING) >= 0,
@@ -42,12 +50,12 @@ export function useTrainingServiceShortcut() {
   useEffect(() => {
     window.mainHandle
       .courseHaveNewVersionTrainingServiceHandle()
-      .then((haveNew) => {
-        setCourseHaveNewVersion(haveNew);
+      .then((info) => {
+        setVersionInfo(info);
       });
 
     return () => {};
-  }, []);
+  }, [dockerDatatrigger]);
 
   const containerInfos: ContainerItem[] = [
     {
@@ -113,7 +121,7 @@ export function useTrainingServiceShortcut() {
     start,
     remove,
     initing,
-    courseHaveNewVersion,
+    versionInfo,
     updateCourse,
     downloadLogs,
   };

@@ -10,12 +10,14 @@ import {
 } from './type-info';
 import { ipcHandle } from '../ipc-util';
 import {
+  getServiceInfo,
   getServiceLogs,
   installService,
   monitorStatusIsHealthy,
   removeService,
   startService,
   stopService,
+  updateService,
 } from '../podman-desktop/simple-container-manage';
 import {
   getDLCIndex,
@@ -24,6 +26,7 @@ import {
   startWebtorrent,
   waitTorrentDone,
 } from '../dlc';
+import path from 'node:path';
 
 // 全局变量存储trainingWindow实例
 let trainingWindow: BrowserWindow | null = null;
@@ -75,10 +78,19 @@ const createWindow = (): void => {
 };
 
 export async function installTrainingService() {
-  return installService('TRAINING');
+  const latestVersion = getLatestVersion('TRAINING_TAR');
+  const torrent = await startWebtorrent(latestVersion.dlcInfo.magnet);
+  await waitTorrentDone('TRAINING_TAR', latestVersion.version);
+  const tarPath = path.join(torrent.path, torrent.files[0].name);
+  return installService('TRAINING', null, tarPath);
 }
 
 export async function removeTrainingService() {
+  try {
+    trainingWindow.close();
+  } catch (e) {
+    console.warn(e);
+  }
   return removeService('TRAINING');
 }
 
@@ -98,27 +110,39 @@ export async function startTrainingService() {
 }
 
 export async function updateCourseTrainingService() {
-  if (courseHaveNewVersionTrainingService()) {
-    const latestVersion = getLatestVersion('TRAINING_COURSE');
-    await startWebtorrent(latestVersion.dlcInfo.magnet);
-    await waitTorrentDone('TRAINING_COURSE', latestVersion.version);
-    const info = await startService('TRAINING');
-    if (info && info.Status === 'healthy') {
-      // 导入下载的数据
-      console.debug('开始导入数据');
-    } else {
-      await monitorStatusIsHealthy('TRAINING');
-      // 导入下载的数据
-      console.debug('开始导入数据');
+  try {
+    trainingWindow.close();
+  } catch (e) {
+    console.warn(e);
+  }
+  if ((await courseHaveNewVersionTrainingService()).haveNew) {
+    const latestVersion = getLatestVersion('TRAINING_TAR');
+    const torrent = await startWebtorrent(latestVersion.dlcInfo.magnet);
+    await waitTorrentDone('TRAINING_TAR', latestVersion.version);
+    try {
+      await stopService('TRAINING');
+      await removeService('TRAINING');
+    } catch (e) {
+      console.warn(e);
     }
+    const tarPath = path.join(torrent.path, torrent.files[0].name);
+    await updateService('TRAINING', null, tarPath);
     return { someData: 'data1' };
   }
 }
 
 export async function getCourseVersion() {
-  return '2.0.0';
+  const info = await getServiceInfo('TRAINING');
+  const labelVersion = info && info.Labels && info.Labels.version;
+  console.debug('labelVersion', labelVersion);
+  return labelVersion ? labelVersion : '0.0.1';
 }
 
 export async function courseHaveNewVersionTrainingService() {
-  return !isLatestVersion('TRAINING_COURSE', await getCourseVersion());
+  const currentVersion = await getCourseVersion();
+  return {
+    currentVersion: currentVersion,
+    latestVersion: getLatestVersion('TRAINING_TAR').version,
+    haveNew: !isLatestVersion('TRAINING_TAR', currentVersion),
+  };
 }

@@ -102,9 +102,9 @@ export async function startWebtorrent(magnet: string) {
       });
       console.debug('种子文件已经存在，继续下载');
       torrent.resume();
-      return;
+      return torrent;
     } else {
-      client.add(
+      return client.add(
         magnet,
         {
           path: filePath,
@@ -385,11 +385,11 @@ export async function waitTorrentDone(id: DLCId, version: string) {
   // 如果已经完成，直接返回
   if (torrent.progress === 1) {
     console.debug(`种子 ${torrent.name} 已经完成下载`);
-    return;
+    return torrent;
   }
 
   // 轮询检查种子是否完成
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<WebTorrent.Torrent>((resolve, reject) => {
     const checkInterval = 1000; // 1秒检查一次
     const maxAttempts = 3600; // 最多检查1小时（3600秒）
     let attempts = 0;
@@ -411,7 +411,7 @@ export async function waitTorrentDone(id: DLCId, version: string) {
       if (currentTorrent.progress === 1) {
         clearInterval(intervalId);
         console.debug(`种子 ${currentTorrent.name} 下载完成`);
-        resolve();
+        resolve(currentTorrent);
         return;
       }
 
@@ -434,7 +434,7 @@ export async function waitTorrentDone(id: DLCId, version: string) {
     torrent.on('done', () => {
       clearInterval(intervalId);
       console.debug(`种子 ${torrent.name} 下载完成（通过事件监听）`);
-      resolve();
+      resolve(torrent);
     });
 
     torrent.on('error', (err) => {
