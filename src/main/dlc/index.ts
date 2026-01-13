@@ -1,4 +1,4 @@
-import { IpcMain, app, ipcRenderer } from 'electron';
+import { IpcMain } from 'electron';
 import {
   logsWebtorrentHandle,
   startWebtorrentHandle,
@@ -15,8 +15,7 @@ import path from 'path';
 import { appPath } from '../exec';
 import fs, { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import patchCA from './patch-ca';
-import { compare, valid } from 'semver';
-import { config } from 'process';
+import { compare } from 'semver';
 
 patchCA();
 
@@ -79,6 +78,8 @@ export default async function init(ipcMain: IpcMain) {
   ipcHandle(ipcMain, logsWebtorrentHandle, async (_event, magnet: string) =>
     logsWebtorrent(magnet),
   );
+  // 检查种子文件和对应的实际文件，如果有文件，就添加到webtorrent中
+  await restoreTorrentsFromFiles();
 }
 
 export async function startWebtorrent(magnet: string) {
@@ -272,6 +273,35 @@ export function getIndexVersionByMegnet(magnet: string) {
   }
 }
 
+/** 检查infoHash是否在DLC索引中列出 */
+export function isInfoHashInIndex(infoHash: string): boolean {
+  const dLCIndex = getDLCIndex();
+  for (const dlc of dLCIndex) {
+    for (const v in dlc.versions) {
+      const version = dlc.versions[v];
+      if (version.magnet) {
+        // 从magnet链接中提取infoHash
+        try {
+          const url = new URL(version.magnet);
+          const xt = url.searchParams.get('xt');
+          if (xt) {
+            const magnetInfoHash = xt.split(':')?.pop();
+            if (
+              magnetInfoHash &&
+              magnetInfoHash.toLowerCase() === infoHash.toLowerCase()
+            ) {
+              return true;
+            }
+          }
+        } catch (error) {
+          console.error('解析magnet链接失败:', version.magnet, error);
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function getProgress(magnet?: string) {
   if (!magnet) {
     return null;
@@ -308,4 +338,113 @@ function shallowCopyPrimitives<T extends object>(obj: T): T {
     }
   }
   return result;
+}
+
+/** 从文件恢复种子 */
+async function restoreTorrentsFromFiles() {
+  if (!client) {
+    console.warn('WebTorrent客户端未初始化，无法恢复种子');
+    return;
+  }
+
+  const dlcBasePath = path.join(appPath, 'external-resources', 'dlc');
+
+  // 检查DLC基础目录是否存在
+  if (!existsSync(dlcBasePath)) {
+    console.debug('DLC目录不存在，无需恢复种子');
+    return;
+  }
+
+  try {
+    // 获取所有DLC文件夹
+    const dlcFolders = fs
+      .readdirSync(dlcBasePath, { withFileTypes: true })
+      .filter((dirent) => dirent.isDirectory() && dirent.name !== '.git')
+      .map((dirent) => dirent.name);
+
+    let restoredCount = 0;
+
+    for (const dlcId of dlcFolders) {
+      const dlcPath = path.join(dlcBasePath, dlcId);
+
+      // 获取所有版本文件夹
+      const versionFolders = fs
+        .readdirSync(dlcPath, { withFileTypes: true })
+        .filter((dirent) => dirent.isDirectory())
+        .map((dirent) => dirent.name);
+
+      for (const version of versionFolders) {
+        const versionPath = path.join(dlcPath, version);
+
+        // 查找所有.torrent文件
+        const files = fs.readdirSync(versionPath);
+        const torrentFiles = files.filter((file) => file.endsWith('.torrent'));
+
+        for (const torrentFile of torrentFiles) {
+          const torrentPath = path.join(versionPath, torrentFile);
+          const infoHash = torrentFile.replace('.torrent', '');
+
+          // 检查是否已经添加了这个种子
+          const existingTorrent = client.torrents.find(
+            (t) => t.infoHash === infoHash,
+          );
+          if (existingTorrent) {
+            console.debug(`种子 ${infoHash} 已经存在，跳过`);
+            continue;
+          }
+
+          // 检查种子是否在dlc-index.json中列出，避免用户攻击性行为
+          if (!isInfoHashInIndex(infoHash)) {
+            console.warn(
+              `种子 ${infoHash} 不在dlc-index.json中列出，跳过恢复（可能为攻击性行为）`,
+            );
+            continue;
+          }
+
+          // 检查是否有实际文件存在
+          // 我们需要检查除了.torrent文件之外的其他文件
+          const otherFiles = files.filter(
+            (file) => file !== torrentFile && !file.endsWith('.torrent'),
+          );
+          if (otherFiles.length === 0) {
+            console.debug(
+              `版本 ${dlcId}/${version} 没有实际文件，跳过种子 ${infoHash}`,
+            );
+            continue;
+          }
+
+          try {
+            // 读取.torrent文件
+            const torrentBuffer = fs.readFileSync(torrentPath);
+
+            // 添加种子到WebTorrent
+            client.add(torrentBuffer, { path: versionPath }, (torrent) => {
+              console.debug(
+                `恢复种子成功: ${torrent.name} (${torrent.infoHash})`,
+              );
+              console.debug(`存储路径: ${torrent.path}`);
+
+              // 根据用户要求，恢复种子后让下载处于暂停状态
+              console.debug(`恢复种子后暂停下载: ${torrent.name}`);
+              torrent.pause();
+
+              // 如果文件已经完整，切换到做种模式
+              if (torrent.progress === 1) {
+                console.debug(`文件已完整，切换到做种模式: ${torrent.name}`);
+                torrent.deselect(0, torrent.pieces.length - 1, 0);
+              }
+            });
+
+            restoredCount++;
+          } catch (error) {
+            console.error(`恢复种子失败 ${torrentPath}:`, error);
+          }
+        }
+      }
+    }
+
+    console.debug(`成功恢复 ${restoredCount} 个种子`);
+  } catch (error) {
+    console.error('恢复种子过程中发生错误:', error);
+  }
 }
