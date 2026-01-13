@@ -17,6 +17,7 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { useTrainingServiceShortcut } from '../../containers/use-training-service-shortcut';
 import { useLogContainer } from '../../containers/backup';
 import { useVM } from '../../containers/use-vm';
+import { TorrentProgress } from '../../containers/torrent-progress';
 
 export default function Hello() {
   const trainingServiceShortcut = useTrainingServiceShortcut();
@@ -535,6 +536,7 @@ export default function Hello() {
                         AI辅助的学科知识培训，学员建档设立目标，帮助补齐技能知识短板
                       </p>
                     </div>
+                    <TorrentProgress id={'TRAINING_COURSE'} version={'2.0.2'} />
                   </div>
                   <div className="feature-button-container">
                     <Button

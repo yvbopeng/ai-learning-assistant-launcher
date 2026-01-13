@@ -172,7 +172,6 @@ export async function removeWebtorrent(magnet: string) {
 }
 
 export async function logsWebtorrent(magnet: string) {
-  // TODO: 实现WebTorrent日志功能
   console.debug(`请求日志 for magnet: ${magnet}`);
   return null;
 }
@@ -313,8 +312,18 @@ function getProgress(magnet?: string) {
     // console.debug('hash', hash, 'infohash', torrent.infoHash);
     return torrent.infoHash === hash;
   })[0];
+
   if (torrent) {
-    return shallowCopyPrimitives(torrent);
+    const result = shallowCopyPrimitives(torrent);
+    // @ts-ignore
+    result.progress = torrent.progress;
+    // @ts-ignore
+    result.ratio = torrent.ratio;
+    // @ts-ignore
+    result.uploadSpeed = torrent.uploadSpeed;
+    // @ts-ignore
+    result.downloadSpeed = torrent.downloadSpeed;
+    return result;
   }
   return null;
 }
@@ -338,6 +347,102 @@ function shallowCopyPrimitives<T extends object>(obj: T): T {
     }
   }
   return result;
+}
+
+export async function waitTorrentDone(id: DLCId, version: string) {
+  // 根据 id 和 version 获取 DLC 信息
+  const dlc = getDLCFromDLCIndex(id);
+  const versionInfo = dlc.versions[version];
+
+  if (!versionInfo) {
+    throw new Error(`找不到 DLC ${id} 版本 ${version} 的信息`);
+  }
+
+  const magnet = versionInfo.magnet;
+  if (!magnet) {
+    throw new Error(`DLC ${id} 版本 ${version} 没有 magnet 链接`);
+  }
+
+  // 从 magnet 链接中提取 infoHash
+  const url = new URL(magnet);
+  const xt = url.searchParams.get('xt');
+  if (!xt) {
+    throw new Error(`无效的 magnet 链接: ${magnet}`);
+  }
+
+  const infoHash = xt.split(':')?.pop();
+  if (!infoHash) {
+    throw new Error(`无法从 magnet 链接中提取 infoHash: ${magnet}`);
+  }
+
+  // 查找对应的种子
+  const torrent = client.torrents.find((t) => t.infoHash === infoHash);
+
+  if (!torrent) {
+    throw new Error(`找不到对应的种子，infoHash: ${infoHash}`);
+  }
+
+  // 如果已经完成，直接返回
+  if (torrent.progress === 1) {
+    console.debug(`种子 ${torrent.name} 已经完成下载`);
+    return;
+  }
+
+  // 轮询检查种子是否完成
+  return new Promise<void>((resolve, reject) => {
+    const checkInterval = 1000; // 1秒检查一次
+    const maxAttempts = 3600; // 最多检查1小时（3600秒）
+    let attempts = 0;
+
+    const intervalId = setInterval(() => {
+      attempts++;
+
+      // 检查种子是否仍然存在
+      const currentTorrent = client.torrents.find(
+        (t) => t.infoHash === infoHash,
+      );
+      if (!currentTorrent) {
+        clearInterval(intervalId);
+        reject(new Error(`种子 ${infoHash} 在轮询过程中被移除`));
+        return;
+      }
+
+      // 检查是否完成
+      if (currentTorrent.progress === 1) {
+        clearInterval(intervalId);
+        console.debug(`种子 ${currentTorrent.name} 下载完成`);
+        resolve();
+        return;
+      }
+
+      // 检查是否超时
+      if (attempts >= maxAttempts) {
+        clearInterval(intervalId);
+        reject(new Error(`等待种子下载超时（${maxAttempts}秒）`));
+        return;
+      }
+
+      // 输出进度信息（可选，每10秒输出一次）
+      if (attempts % 10 === 0) {
+        console.debug(
+          `种子 ${currentTorrent.name} 下载进度: ${(currentTorrent.progress * 100).toFixed(2)}%`,
+        );
+      }
+    }, checkInterval);
+
+    // 同时监听种子的事件
+    torrent.on('done', () => {
+      clearInterval(intervalId);
+      console.debug(`种子 ${torrent.name} 下载完成（通过事件监听）`);
+      resolve();
+    });
+
+    torrent.on('error', (err) => {
+      clearInterval(intervalId);
+      const errorMessage = typeof err === 'string' ? err : err.message;
+      reject(new Error(`种子下载出错: ${errorMessage}`));
+    });
+  });
 }
 
 /** 从文件恢复种子 */

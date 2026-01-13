@@ -22,6 +22,7 @@ import {
   getLatestVersion,
   isLatestVersion,
   startWebtorrent,
+  waitTorrentDone,
 } from '../dlc';
 
 // 全局变量存储trainingWindow实例
@@ -100,6 +101,17 @@ export async function updateCourseTrainingService() {
   if (courseHaveNewVersionTrainingService()) {
     const latestVersion = getLatestVersion('TRAINING_COURSE');
     await startWebtorrent(latestVersion.dlcInfo.magnet);
+    await waitTorrentDone('TRAINING_COURSE', latestVersion.version);
+    const info = await startService('TRAINING');
+    if (info && info.Status === 'healthy') {
+      // 导入下载的数据
+      console.debug('开始导入数据');
+    } else {
+      await monitorStatusIsHealthy('TRAINING');
+      // 导入下载的数据
+      console.debug('开始导入数据');
+    }
+    return { someData: 'data1' };
   }
 }
 
