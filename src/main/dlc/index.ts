@@ -1,4 +1,4 @@
-import { IpcMain, app } from 'electron';
+import { IpcMain, app, ipcRenderer } from 'electron';
 import {
   logsWebtorrentHandle,
   startWebtorrentHandle,
@@ -13,9 +13,10 @@ import { ipcHandle } from '../ipc-util';
 import WebTorrent, * as allExports from 'webtorrent';
 import path from 'path';
 import { appPath } from '../exec';
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
+import fs, { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import patchCA from './patch-ca';
 import { compare, valid } from 'semver';
+import { config } from 'process';
 
 patchCA();
 
@@ -83,22 +84,25 @@ export default async function init(ipcMain: IpcMain) {
 export async function startWebtorrent(magnet: string) {
   const torrent = await client.get(magnet);
   const dLCInfo = getIndexVersionByMegnet(magnet);
-
-  if (torrent) {
-    torrent.resume();
-    return;
-  } else {
-    if (dLCInfo) {
-      const filePath = path.join(
-        appPath,
-        'external-resources',
-        'dlc',
-        dLCInfo.dlc.id,
-        dLCInfo.version,
-      );
-      if (!existsSync(filePath)) {
-        mkdirSync(filePath, { recursive: true });
-      }
+  if (dLCInfo) {
+    const filePath = path.join(
+      appPath,
+      'external-resources',
+      'dlc',
+      dLCInfo.dlc.id,
+      dLCInfo.version,
+    );
+    if (!existsSync(filePath)) {
+      mkdirSync(filePath, { recursive: true });
+    }
+    if (torrent) {
+      torrent.on('metadata', () => {
+        saveTorrentFile(filePath, torrent);
+      });
+      console.debug('种子文件已经存在，继续下载');
+      torrent.resume();
+      return;
+    } else {
       client.add(
         magnet,
         {
@@ -109,11 +113,33 @@ export async function startWebtorrent(magnet: string) {
           console.debug('Client is downloading:', torrent.infoHash);
           console.debug(`[add] 开始下载 ${torrent.name}`);
           console.debug(`[add] 存储地址 ${torrent.path}`);
+          saveTorrentFile(filePath, torrent);
         },
       );
-    } else {
-      console.warn('没找到链接对应的索引信息', magnet);
     }
+  } else {
+    console.warn('没找到链接对应的索引信息', magnet);
+  }
+}
+
+// Every time we resolve a magnet URI, save the torrent file so that we can use
+// it on next startup. Starting with the full torrent metadata will be faster
+// than re-fetching it from peers using ut_metadata.
+async function saveTorrentFile(
+  torrentBasePath: string,
+  torrent: WebTorrent.Torrent,
+) {
+  const torrentPath = path.join(torrentBasePath, torrent.infoHash + '.torrent');
+
+  try {
+    fs.accessSync(torrentPath, fs.constants.R_OK);
+    return torrentPath;
+  } catch (err) {
+    // Otherwise, save the .torrent file, under the app config folder
+    fs.mkdirSync(torrentBasePath, { recursive: true });
+    fs.writeFileSync(torrentPath, torrent.torrentFile);
+    console.debug('保存种子文件成功', torrentPath);
+    return torrentPath;
   }
 }
 
