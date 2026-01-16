@@ -19,6 +19,15 @@ import {
   removeTrainingServiceHandle,
   startTrainingServiceHandle,
 } from './training-service/type-info';
+import {
+  startWebtorrentHandle,
+  queryWebtorrentHandle,
+  pauseWebtorrentHandle,
+  removeWebtorrentHandle,
+  getActiveTorrentsHandle,
+  installUpdateHandle,
+  DLCIndex,
+} from './dlc/type-info';
 
 const electronHandler = {
   ipcRenderer: {
@@ -107,6 +116,27 @@ const mainHandle = {
     return ipcInvoke<{ imageId: string; logs: string }>(
       logsTrainingServiceHandle,
     );
+  },
+  // DLC 下载相关方法
+  startWebtorrent: async (magnet: string): Promise<any> => {
+    return ipcInvoke(startWebtorrentHandle, magnet);
+  },
+  queryWebtorrent: async (): Promise<DLCIndex> => {
+    return ipcInvoke(queryWebtorrentHandle);
+  },
+  pauseWebtorrent: async (magnet: string): Promise<void> => {
+    return ipcInvoke(pauseWebtorrentHandle, magnet);
+  },
+  removeWebtorrent: async (magnet: string): Promise<void> => {
+    return ipcInvoke(removeWebtorrentHandle, magnet);
+  },
+  getActiveTorrents: async (): Promise<any[]> => {
+    return ipcInvoke(getActiveTorrentsHandle);
+  },
+  installUpdate: async (
+    zipPath: string,
+  ): Promise<{ success: boolean; message: string }> => {
+    return ipcInvoke(installUpdateHandle, zipPath);
   },
 };
 

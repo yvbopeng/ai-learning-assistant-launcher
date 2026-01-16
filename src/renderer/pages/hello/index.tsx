@@ -1,6 +1,14 @@
-import { Button, message, Space, Modal, notification, Popconfirm } from 'antd';
+import {
+  Button,
+  message,
+  Space,
+  Modal,
+  notification,
+  Popconfirm,
+  Progress,
+} from 'antd';
 import { NavLink } from 'react-router-dom';
-import { useEffect, useState, useRef } from 'react'; // 添加 useRef 导入
+import { useEffect, useState, useRef, useCallback } from 'react'; // 添加 useRef 导入
 import obsidianLogo from './2023_Obsidian_logo.png';
 import toolsIcon from './Tools_Icon.png';
 import llmIcon from './LLM_Icon.png';
@@ -17,6 +25,11 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { useTrainingServiceShortcut } from '../../containers/use-training-service-shortcut';
 import { useLogContainer } from '../../containers/backup';
 import { useVM } from '../../containers/use-vm';
+import {
+  channel as webtorrentChannel,
+  RemoteVersionInfo,
+} from '../../../main/webtorrent/type-info';
+import { MESSAGE_TYPE, MessageData } from '../../../main/ipc-data-type';
 
 export default function Hello() {
   const trainingServiceShortcut = useTrainingServiceShortcut();
@@ -25,6 +38,158 @@ export default function Hello() {
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // 远程版本信息
+  const [remoteVersionInfo, setRemoteVersionInfo] =
+    useState<RemoteVersionInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  // 下载状态
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadComplete, setDownloadComplete] = useState(false);
+  const [downloadedZipPath, setDownloadedZipPath] = useState<string | null>(
+    null,
+  );
+  const [installing, setInstalling] = useState(false);
+  const downloadPollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 检查更新功能 - 通过主进程IPC获取
+  const checkForUpdate = useCallback(() => {
+    setCheckingUpdate(true);
+    window.electron.ipcRenderer.sendMessage(
+      webtorrentChannel,
+      'checkUpdate',
+      'launcher',
+    );
+  }, []);
+
+  // 停止轮询下载进度
+  const stopDownloadPolling = useCallback(() => {
+    if (downloadPollingRef.current) {
+      clearInterval(downloadPollingRef.current);
+      downloadPollingRef.current = null;
+    }
+  }, []);
+
+  // 轮询下载进度
+  const pollDownloadProgress = useCallback(async () => {
+    try {
+      // 使用 getActiveTorrents 获取所有活动种子的进度
+      const activeTorrents = await window.mainHandle.getActiveTorrents();
+      console.debug('活动种子:', activeTorrents);
+
+      if (activeTorrents && activeTorrents.length > 0) {
+        // 查找 launcher 相关的种子（通过文件名判断）
+        const launcherTorrent = activeTorrents.find(
+          (t) =>
+            t.name?.includes('AI-Learning-Assistant-Launcher') ||
+            t.path?.includes('AI_LEARNING_ASSISTANT_LAUNCHER'),
+        );
+
+        if (launcherTorrent) {
+          const progress = Math.round((launcherTorrent.progress || 0) * 100);
+          setDownloadProgress(progress);
+          console.debug(
+            `下载进度: ${progress}%, peers: ${launcherTorrent.numPeers}`,
+          );
+
+          if (launcherTorrent.done || progress >= 100) {
+            setDownloading(false);
+            setDownloadComplete(true);
+            stopDownloadPolling();
+            // 保存下载的 zip 文件路径
+            if (launcherTorrent.path && launcherTorrent.name) {
+              const zipPath = `${launcherTorrent.path}\\${launcherTorrent.name}`;
+              setDownloadedZipPath(zipPath);
+              console.log('下载完成，文件路径:', zipPath);
+            }
+            message.success('下载完成！点击“安装更新”进行安装');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('轮询下载进度失败:', error);
+    }
+  }, [stopDownloadPolling]);
+
+  // 开始下载更新
+  const startDownload = useCallback(async () => {
+    if (!remoteVersionInfo?.magnet) {
+      message.error('没有可用的下载链接');
+      return;
+    }
+
+    setDownloading(true);
+    setDownloadProgress(0);
+
+    try {
+      await window.mainHandle.startWebtorrent(remoteVersionInfo.magnet);
+      message.info('开始下载更新...');
+
+      // 开始轮询下载进度
+      downloadPollingRef.current = setInterval(pollDownloadProgress, 2000);
+    } catch (error) {
+      setDownloading(false);
+      message.error(`下载失败: ${error.message || '未知错误'}`);
+    }
+  }, [remoteVersionInfo, pollDownloadProgress]);
+
+  // 安装更新
+  const handleInstallUpdate = useCallback(async () => {
+    if (!downloadedZipPath) {
+      message.error('找不到下载的文件');
+      return;
+    }
+
+    setInstalling(true);
+    try {
+      const result = await window.mainHandle.installUpdate(downloadedZipPath);
+      if (result.success) {
+        message.success(result.message);
+        // 程序将自动重启
+      } else {
+        message.error(result.message);
+        setInstalling(false);
+      }
+    } catch (error) {
+      message.error(`安装失败: ${error.message || '未知错误'}`);
+      setInstalling(false);
+    }
+  }, [downloadedZipPath]);
+
+  // 监听 webtorrent 通道的响应
+  useEffect(() => {
+    const cancel = window.electron?.ipcRenderer.on(
+      webtorrentChannel,
+      (messageType, data) => {
+        console.debug('webtorrent response:', messageType, data);
+        if (messageType === MESSAGE_TYPE.DATA) {
+          const { data: payload } = data as MessageData;
+          const versionInfo = payload as RemoteVersionInfo;
+          setRemoteVersionInfo(versionInfo);
+          // 比较版本号
+          const currentVersion = __NPM_PACKAGE_VERSION__;
+          if (versionInfo.latestVersion !== currentVersion) {
+            message.info(
+              `发现新版本: ${versionInfo.latestVersion}，当前版本: ${currentVersion}`,
+            );
+          } else {
+            message.success('已是最新版本');
+          }
+          setCheckingUpdate(false);
+        } else if (messageType === MESSAGE_TYPE.ERROR) {
+          message.error(data as string);
+          setCheckingUpdate(false);
+        }
+      },
+    );
+
+    return () => {
+      if (cancel) cancel();
+      stopDownloadPolling();
+    };
+  }, [stopDownloadPolling]);
 
   const {
     isWSLInstalled,
@@ -112,7 +277,12 @@ export default function Hello() {
 
   // 新增：打开使用文档
   const openUserManual = () => {
-    window.electron?.ipcRenderer.sendMessage('open-external-url', 'open', 'browser', 'https://docs.qq.com/aio/DS1NnZkZkdkFiSVdP');
+    window.electron?.ipcRenderer.sendMessage(
+      'open-external-url',
+      'open',
+      'browser',
+      'https://docs.qq.com/aio/DS1NnZkZkdkFiSVdP',
+    );
   };
   // 新增：打开使用文档
   // const openUserManual = async () => {
@@ -579,8 +749,58 @@ export default function Hello() {
             <div className="hello-footer">
               <div className="version-info">
                 版本号：{__NPM_PACKAGE_VERSION__} 源码版本：{__COMMIT_HASH__}
+                {remoteVersionInfo &&
+                  remoteVersionInfo.latestVersion !==
+                    __NPM_PACKAGE_VERSION__ && (
+                    <span style={{ color: '#52c41a', marginLeft: '8px' }}>
+                      (有新版本: {remoteVersionInfo.latestVersion})
+                    </span>
+                  )}
               </div>
+              {/* 下载进度条 */}
+              {downloading && (
+                <div style={{ width: '200px', marginRight: '16px' }}>
+                  <Progress percent={downloadProgress} size="small" />
+                </div>
+              )}
               <div className="log-export">
+                {/* 更新按钮 */}
+                <Button
+                  className="status-indicator"
+                  onClick={checkForUpdate}
+                  loading={checkingUpdate}
+                  type="primary"
+                  style={{ marginRight: '8px' }}
+                >
+                  <span className="log-text">检查更新</span>
+                </Button>
+                {/* 下载按钮 - 仅在有新版本且未下载完成时显示 */}
+                {remoteVersionInfo &&
+                  remoteVersionInfo.latestVersion !== __NPM_PACKAGE_VERSION__ &&
+                  !downloadComplete && (
+                    <Button
+                      className="status-indicator"
+                      onClick={startDownload}
+                      loading={downloading}
+                      type="primary"
+                      style={{ marginRight: '8px' }}
+                    >
+                      <span className="log-text">下载更新</span>
+                    </Button>
+                  )}
+                {/* 安装按钮 - 仅在下载完成后显示 */}
+                {downloadComplete && downloadedZipPath && (
+                  <Button
+                    className="status-indicator"
+                    onClick={handleInstallUpdate}
+                    loading={installing}
+                    type="primary"
+                    danger
+                    style={{ marginRight: '8px' }}
+                  >
+                    <span className="log-text">安装更新</span>
+                  </Button>
+                )}
                 <Button
                   className="status-indicator"
                   onClick={handleExportLogs}

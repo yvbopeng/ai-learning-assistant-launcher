@@ -8,6 +8,7 @@ export type ActionName =
   | 'stop'
   | 'remove'
   | 'update'
-  | 'move';
+  | 'move'
+  | 'checkVersion';
 
 export const channel: Channels = 'cmd';

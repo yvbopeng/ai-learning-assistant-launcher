@@ -3,12 +3,32 @@ import { notification } from 'antd';
 import { ActionName, channel, ServiceName } from '../../../main/cmd/type-info';
 import { MESSAGE_TYPE, MessageData } from '../../../main/ipc-data-type';
 
+export interface DownloadProgress {
+  percent: number;
+  status: 'idle' | 'downloading' | 'installing' | 'done';
+  message: string;
+}
+
 export default function useCmd() {
   const [isInstallWSL, setIsInstallWSL] = useState<boolean>(true);
   const [wslVersion, setWSLVersion] = useState<string>('');
   const [checkingWsl, setCheckingWsl] = useState<boolean>(true);
   const [isInstallObsidian, setIsInstallObsidian] = useState<boolean>(true);
   const [isInstallLMStudio, setIsInstallLMStudio] = useState<boolean>(true);
+  const [lmStudioVersionInfo, setLmStudioVersionInfo] = useState<{
+    needUpdate: boolean;
+    installedVersion: string | null;
+    latestVersion: string | null;
+  }>({
+    needUpdate: false,
+    installedVersion: null,
+    latestVersion: null,
+  });
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress>({
+    percent: 0,
+    status: 'idle',
+    message: '',
+  });
   const [loading, setLoading] = useState(false);
   function action(
     actionName: ActionName,
@@ -36,6 +56,11 @@ export default function useCmd() {
     window.electron.ipcRenderer.sendMessage(channel, 'query', 'WSL');
     window.electron.ipcRenderer.sendMessage(channel, 'query', 'obsidianApp');
     window.electron.ipcRenderer.sendMessage(channel, 'query', 'lm-studio');
+    window.electron.ipcRenderer.sendMessage(
+      channel,
+      'checkVersion',
+      'lm-studio',
+    );
   }, [setCheckingWsl]);
   useEffect(() => {
     const cancel = window.electron?.ipcRenderer.on(
@@ -47,6 +72,8 @@ export default function useCmd() {
             message: data as string,
             placement: 'topRight',
           });
+          // 错误时重置下载进度
+          setDownloadProgress({ percent: 0, status: 'idle', message: '' });
           setLoading(false);
         } else if (messageType === MESSAGE_TYPE.DATA) {
           const {
@@ -81,6 +108,19 @@ export default function useCmd() {
               setIsInstallWSL(payload.installed);
               setWSLVersion(payload.version);
               setLoading(false);
+            } else if (service === 'lm-studio') {
+              if (payload.installedVersion) {
+                setLmStudioVersionInfo({
+                  needUpdate: payload.needUpdate,
+                  installedVersion: payload.installedVersion,
+                  latestVersion: payload.latestVersion,
+                });
+              }
+              setLoading(false);
+            }
+          } else if (actionName === 'checkVersion') {
+            if (service === 'lm-studio') {
+              setLmStudioVersionInfo(payload);
             }
           }
         } else if (messageType === MESSAGE_TYPE.INFO) {
@@ -88,6 +128,8 @@ export default function useCmd() {
             message: data as string,
             placement: 'topRight',
           });
+          // 完成后重置下载进度
+          setDownloadProgress({ percent: 0, status: 'idle', message: '' });
           query();
           setLoading(false);
         } else if (messageType === MESSAGE_TYPE.PROGRESS) {
@@ -105,6 +147,10 @@ export default function useCmd() {
             message: data as string,
             placement: 'topRight',
           });
+        } else if (messageType === MESSAGE_TYPE.DOWNLOAD_PROGRESS) {
+          // 下载进度，更新进度状态，不弹窗
+          const progressData = data as unknown as DownloadProgress;
+          setDownloadProgress(progressData);
         }
       },
     );
@@ -122,6 +168,8 @@ export default function useCmd() {
     isInstallWSL,
     isInstallObsidian,
     isInstallLMStudio,
+    lmStudioVersionInfo,
+    downloadProgress,
     checkingWsl,
     action,
     loading,

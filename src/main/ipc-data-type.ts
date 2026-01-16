@@ -15,7 +15,8 @@ export type Channels =
   | 'pdf-config'
   | 'training-service'
   | 'backup'
-  | 'open-external-url';
+  | 'open-external-url'
+  | 'webtorrent';
 
 export enum MESSAGE_TYPE {
   /** 阻断性错误，会把转圈中的按钮变成不转圈 */
@@ -30,6 +31,8 @@ export enum MESSAGE_TYPE {
   PROGRESS = 'progress',
   /** 非阻断性错误，不会把转圈中的按钮变成不转圈 */
   PROGRESS_ERROR = 'progress_error',
+  /** 下载进度，用于进度条展示，不会弹窗 */
+  DOWNLOAD_PROGRESS = 'download_progress',
 }
 
 import {
@@ -68,11 +71,14 @@ import {
   ActionName as LogActionName,
   ServiceName as LogServiceName,
 } from './backup/type-info';
-import { 
+import {
   ActionName as ActionNameUrl,
   ServiceName as ServiceNameUrl,
 } from './external-url/type-info';
-
+import {
+  ActionName as ActionNameWebtorrent,
+  ServiceName as ServiceNameWebtorrent,
+} from './webtorrent/type-info';
 
 export type AllAction =
   | ActionNamePodman
@@ -82,9 +88,10 @@ export type AllAction =
   | ActionNamePdfConvert
   | ActionNameLMStudio
   | ActionNameExampleMain
-  | ActionNameWorkspace // 添加 workspace 类型
+  | ActionNameWorkspace
   | LogActionName
-  | ActionNameUrl;
+  | ActionNameUrl
+  | ActionNameWebtorrent;
 
 export type AllService =
   | ServiceNamePodman
@@ -96,7 +103,8 @@ export type AllService =
   | ServiceNameExampleMain
   | ServiceNameWorkspace
   | LogServiceName
-  | ServiceNameUrl;
+  | ServiceNameUrl
+  | ServiceNameWebtorrent;
 
 export class MessageData<
   A extends AllAction = AllAction,

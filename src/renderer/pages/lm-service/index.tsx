@@ -1,4 +1,11 @@
-import { Button, List, notification, Popconfirm, Typography } from 'antd';
+import {
+  Button,
+  List,
+  notification,
+  Popconfirm,
+  Typography,
+  Progress,
+} from 'antd';
 import { Link } from 'react-router-dom';
 import './index.scss';
 import { useState } from 'react';
@@ -43,6 +50,7 @@ export default function LMService() {
   const {
     checkingWsl,
     isInstallLMStudio,
+    downloadProgress,
     action: cmdAction,
     loading: cmdLoading,
   } = useCmd();
@@ -144,6 +152,21 @@ export default function LMService() {
                 </Button>
               </Popconfirm>
               <div style={{ width: '20px', display: 'inline-block' }}></div>
+              {isInstallLMStudio && (
+                <Button
+                  type="primary"
+                  shape="round"
+                  loading={
+                    cmdLoading &&
+                    cmdOperating.serviceName === 'lm-studio' &&
+                    cmdOperating.actionName === 'update'
+                  }
+                  onClick={() => clickCmd('update', 'lm-studio')}
+                  style={{ marginRight: '10px' }}
+                >
+                  更新LMStudio
+                </Button>
+              )}
               <Button
                 disabled={isInstallLMStudio}
                 type="primary"
@@ -160,6 +183,31 @@ export default function LMService() {
                   ? '已安装LMStudio'
                   : '开启本地大模型前请点我安装LMStudio'}
               </Button>
+              {/* 下载进度条 */}
+              {downloadProgress.status !== 'idle' && (
+                <div
+                  style={{
+                    marginLeft: '20px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    minWidth: '250px',
+                  }}
+                >
+                  <Progress
+                    percent={downloadProgress.percent}
+                    size="small"
+                    status={
+                      downloadProgress.status === 'installing'
+                        ? 'active'
+                        : 'normal'
+                    }
+                    style={{ width: '150px', marginRight: '10px' }}
+                  />
+                  <span style={{ fontSize: '12px', color: '#666' }}>
+                    {downloadProgress.message}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         }

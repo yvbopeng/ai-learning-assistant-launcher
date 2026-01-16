@@ -13,6 +13,8 @@ import initPdfConvert from './pdf-convert';
 import initTrainingService from './training-service';
 import initLogService from './backup';
 import initExternalUrl from './external-url';
+import initWebtorrent from './webtorrent';
+import initDlc from './dlc';
 import path from 'node:path';
 import { appPath, autoAdaptEncodingForWindows } from './exec';
 import { logDeviceInfo } from './logger/log-device-info';
@@ -77,7 +79,11 @@ initExampleMain(ipcMain);
 initPdfConvert(ipcMain);
 initTrainingService(ipcMain);
 initExternalUrl(ipcMain);
+initWebtorrent(ipcMain);
 updateTemplate();
+
+// 初始化 DLC 下载模块
+initDlc(ipcMain);
 
 const createWindow = async () => {
   // Create the browser window.
@@ -129,7 +135,6 @@ app.on('activate', () => {
     createWindow();
   }
 });
-
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.

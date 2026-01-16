@@ -1,4 +1,4 @@
-import { dialog, IpcMain } from 'electron';
+import { dialog, IpcMain, app } from 'electron';
 import { ActionName, channel, ServiceName } from './type-info';
 import { appPath, Exec } from '../exec';
 import { isMac, isWindows, replaceVarInPath } from '../exec/util';
@@ -9,7 +9,20 @@ import {
 } from '../configs';
 import { MESSAGE_TYPE, MessageData } from '../ipc-data-type';
 import path from 'node:path';
-import { statSync } from 'node:fs';
+import {
+  statSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  readdirSync,
+} from 'node:fs';
+
+import {
+  getLatestVersion,
+  startWebtorrent,
+  waitTorrentDone,
+  getActiveTorrents,
+} from '../dlc';
 import {
   ensurePodmanWorks,
   getPodmanCli,
@@ -144,13 +157,19 @@ export default async function init(ipcMain: IpcMain) {
             }
           } else if (serviceName === 'lm-studio') {
             try {
-              const result = await installLMStudio();
+              const result = await installLMStudio(event);
               event.reply(
                 channel,
                 MESSAGE_TYPE.DATA,
                 new MessageData(action, serviceName, result),
               );
+              event.reply(channel, MESSAGE_TYPE.INFO, 'LM Studio安装成功');
             } catch (e) {
+              event.reply(
+                channel,
+                MESSAGE_TYPE.ERROR,
+                `LM Studio安装失败: ${e.message || '未知错误'}`,
+              );
               event.reply(
                 channel,
                 MESSAGE_TYPE.DATA,
@@ -271,9 +290,60 @@ export default async function init(ipcMain: IpcMain) {
                 installed: result,
               }),
             );
+          } else if (serviceName === 'lm-studio') {
+            // 更新LM Studio
+            try {
+              event.reply(
+                channel,
+                MESSAGE_TYPE.PROGRESS,
+                '正在更新LM Studio...',
+              );
+              const result = await installLMStudio(event);
+              const versionInfo = await checkLMStudioUpdate();
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, {
+                  installed: result,
+                  ...versionInfo,
+                }),
+              );
+              event.reply(channel, MESSAGE_TYPE.INFO, 'LM Studio更新成功');
+            } catch (e) {
+              console.error(e);
+              event.reply(
+                channel,
+                MESSAGE_TYPE.ERROR,
+                `LM Studio更新失败: ${e.message || '未知错误'}`,
+              );
+            }
           } else {
             const result = await commandLine.exec('echo %cd%');
             event.reply(channel, MESSAGE_TYPE.INFO, '成功更新');
+          }
+        } else if (action === 'checkVersion') {
+          if (serviceName === 'lm-studio') {
+            try {
+              const versionInfo = await checkLMStudioUpdate();
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, versionInfo),
+              );
+            } catch (e) {
+              console.error(e);
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, {
+                  needUpdate: false,
+                  installedVersion: null,
+                  latestVersion: null,
+                }),
+              );
+            }
+          } else {
+            event.reply(channel, MESSAGE_TYPE.ERROR, '不支持此服务的版本检查');
           }
         } else {
           event.reply(channel, MESSAGE_TYPE.ERROR, '现在还没有这个功能');
@@ -519,18 +589,178 @@ export async function isObsidianInstall() {
   }
 }
 
-export async function installLMStudio() {
-  const result = await commandLine.exec(
-    path.join(
+const LM_STUDIO_DLC_ID = 'LM_STUDIO_SETUP_EXE';
+
+// 获取本地已安装的LM Studio版本
+export async function getLMStudioInstalledVersion(): Promise<string | null> {
+  try {
+    const result = await Promise.race([
+      new Promise<RunResult>((resolve, reject) =>
+        setTimeout(() => reject('getLMStudioInstalledVersion命令超时'), 15000),
+      ),
+      commandLine.exec('lms', ['version']),
+    ]);
+    console.debug('getLMStudioInstalledVersion', result);
+    // 解析版本号，通常格式为 "lms version x.x.x" 或 "x.x.x"
+    const versionMatch = result.stdout.match(/(\d+\.\d+\.\d+)/);
+    return versionMatch ? versionMatch[1] : null;
+  } catch (e) {
+    console.warn('获取LM Studio版本失败', e);
+    return null;
+  }
+}
+
+// 比较版本号，返回 true 如果 v1 < v2
+function isVersionOlder(v1: string, v2: string): boolean {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 < p2) return true;
+    if (p1 > p2) return false;
+  }
+  return false;
+}
+
+// 检查是否需要更新
+export async function checkLMStudioUpdate(): Promise<{
+  needUpdate: boolean;
+  installedVersion: string | null;
+  latestVersion: string | null;
+}> {
+  const installedVersion = await getLMStudioInstalledVersion();
+  // 无法通过网络获取最新版本，返回不需要更新
+  const latestVersion = null;
+  const needUpdate = false;
+
+  return { needUpdate, installedVersion, latestVersion };
+}
+
+// 使用 WebTorrent 从 dlc-index.json 下载并安装 LM Studio
+export async function installLMStudio(
+  event?: Electron.IpcMainEvent,
+): Promise<boolean> {
+  try {
+    // 从 dlc-index.json 获取最新版本信息
+    console.debug('正在获取 LM Studio 版本信息...');
+    if (event) {
+      event.reply(
+        channel,
+        MESSAGE_TYPE.PROGRESS,
+        '正在获取 LM Studio 版本信息...',
+      );
+    }
+
+    const latestVersionInfo = getLatestVersion(LM_STUDIO_DLC_ID);
+
+    const { version, dlcInfo } = latestVersionInfo;
+    const magnet = dlcInfo.magnet;
+
+    if (!magnet) {
+      throw new Error('DLC 索引中没有 magnet 链接');
+    }
+
+    console.debug(`开始通过 WebTorrent 下载 LM Studio v${version}...`);
+    if (event) {
+      event.reply(
+        channel,
+        MESSAGE_TYPE.PROGRESS,
+        `正在通过 P2P 下载 LM Studio v${version}...`,
+      );
+      event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+        percent: 0,
+        status: 'downloading',
+        message: `正在通过 P2P 下载 LM Studio v${version}...`,
+      });
+    }
+
+    // 启动 WebTorrent 下载
+    await startWebtorrent(magnet);
+
+    // 轮询下载进度并更新 UI
+    const pollProgressInterval = setInterval(() => {
+      const torrents = getActiveTorrents();
+      const torrent = torrents.find((t) =>
+        magnet.toLowerCase().includes(t.infoHash.toLowerCase()),
+      );
+      if (torrent && event) {
+        const percent = Math.round(torrent.progress * 100);
+        event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+          percent,
+          status: 'downloading',
+          message: `正在下载 LM Studio: ${percent}% (${formatSpeed(torrent.downloadSpeed)})`,
+        });
+      }
+    }, 1000);
+
+    // 等待下载完成
+    try {
+      await waitTorrentDone(LM_STUDIO_DLC_ID, version);
+    } finally {
+      clearInterval(pollProgressInterval);
+    }
+
+    console.debug('WebTorrent 下载完成，开始安装...');
+    if (event) {
+      event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+        percent: 100,
+        status: 'installing',
+        message: '下载完成，正在安装 LM Studio...',
+      });
+    }
+
+    // 查找下载的安装文件
+    const downloadPath = path.join(
       appPath,
       'external-resources',
-      'ai-assistant-backend',
-      'install_lm_studio.exe',
-    ),
-    ['/s'],
-  );
-  console.debug(result);
-  return true;
+      'dlc',
+      LM_STUDIO_DLC_ID,
+      version,
+    );
+
+    // 查找 .exe 文件
+    const files = readdirSync(downloadPath);
+    const exeFile = files.find(
+      (f) => f.endsWith('.exe') && !f.endsWith('.torrent'),
+    );
+
+    if (!exeFile) {
+      throw new Error('下载目录中找不到安装程序');
+    }
+
+    const installerPath = path.join(downloadPath, exeFile);
+    console.debug('安装程序路径:', installerPath);
+
+    // 运行安装程序（静默安装）
+    const result = await commandLine.exec(installerPath, ['/s']);
+    console.debug('安装结果', result);
+
+    if (event) {
+      event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+        percent: 100,
+        status: 'done',
+        message: 'LM Studio 安装完成',
+      });
+    }
+
+    return true;
+  } catch (e) {
+    console.error('安装 LM Studio 失败', e);
+    throw e;
+  }
+}
+
+// 格式化下载速度
+function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond < 1024) {
+    return `${bytesPerSecond.toFixed(0)} B/s`;
+  } else if (bytesPerSecond < 1024 * 1024) {
+    return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+  } else {
+    return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
+  }
 }
 
 export async function isLMStudioInstall() {
