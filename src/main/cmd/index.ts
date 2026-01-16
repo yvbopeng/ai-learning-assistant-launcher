@@ -15,6 +15,7 @@ import {
   mkdirSync,
   unlinkSync,
   readdirSync,
+  copyFileSync,
 } from 'node:fs';
 
 import {
@@ -22,6 +23,7 @@ import {
   startWebtorrent,
   waitTorrentDone,
   getActiveTorrents,
+  pauseWebtorrent,
 } from '../dlc';
 import {
   ensurePodmanWorks,
@@ -142,13 +144,19 @@ export default async function init(ipcMain: IpcMain) {
             );
           } else if (serviceName === 'obsidianApp') {
             try {
-              const result = await installObsidian();
+              const result = await installObsidianFromP2P(event);
               event.reply(
                 channel,
                 MESSAGE_TYPE.DATA,
                 new MessageData(action, serviceName, result),
               );
+              event.reply(channel, MESSAGE_TYPE.INFO, 'Obsidian 安装成功');
             } catch (e) {
+              event.reply(
+                channel,
+                MESSAGE_TYPE.ERROR,
+                `Obsidian 安装失败: ${e.message || '未知错误'}`,
+              );
               event.reply(
                 channel,
                 MESSAGE_TYPE.DATA,
@@ -317,6 +325,33 @@ export default async function init(ipcMain: IpcMain) {
                 `LM Studio更新失败: ${e.message || '未知错误'}`,
               );
             }
+          } else if (serviceName === 'obsidianApp') {
+            // 更新 Obsidian
+            try {
+              event.reply(
+                channel,
+                MESSAGE_TYPE.PROGRESS,
+                '正在更新 Obsidian...',
+              );
+              const result = await installObsidianFromP2P(event);
+              const versionInfo = await checkObsidianUpdate();
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, {
+                  installed: result,
+                  ...versionInfo,
+                }),
+              );
+              event.reply(channel, MESSAGE_TYPE.INFO, 'Obsidian 更新成功');
+            } catch (e) {
+              console.error(e);
+              event.reply(
+                channel,
+                MESSAGE_TYPE.ERROR,
+                `Obsidian 更新失败: ${e.message || '未知错误'}`,
+              );
+            }
           } else {
             const result = await commandLine.exec('echo %cd%');
             event.reply(channel, MESSAGE_TYPE.INFO, '成功更新');
@@ -325,6 +360,26 @@ export default async function init(ipcMain: IpcMain) {
           if (serviceName === 'lm-studio') {
             try {
               const versionInfo = await checkLMStudioUpdate();
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, versionInfo),
+              );
+            } catch (e) {
+              console.error(e);
+              event.reply(
+                channel,
+                MESSAGE_TYPE.DATA,
+                new MessageData(action, serviceName, {
+                  needUpdate: false,
+                  installedVersion: null,
+                  latestVersion: null,
+                }),
+              );
+            }
+          } else if (serviceName === 'obsidianApp') {
+            try {
+              const versionInfo = await checkObsidianUpdate();
               event.reply(
                 channel,
                 MESSAGE_TYPE.DATA,
@@ -590,6 +645,7 @@ export async function isObsidianInstall() {
 }
 
 const LM_STUDIO_DLC_ID = 'LM_STUDIO_SETUP_EXE';
+const OBSIDIAN_DLC_ID = 'OBSIDIAN_SETUP_EXE';
 
 // 获取本地已安装的LM Studio版本
 export async function getLMStudioInstalledVersion(): Promise<string | null> {
@@ -733,8 +789,34 @@ export async function installLMStudio(
     const installerPath = path.join(downloadPath, exeFile);
     console.debug('安装程序路径:', installerPath);
 
-    // 运行安装程序（静默安装）
-    const result = await commandLine.exec(installerPath, ['/s']);
+    // 暂停 torrent 释放文件锁，避免 EBUSY 错误
+    try {
+      await pauseWebtorrent(magnet);
+      console.debug('已暂停 torrent，等待文件释放...');
+    } catch (e) {
+      console.warn('暂停 torrent 失败:', e);
+    }
+
+    // 等待文件句柄释放
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // 将安装文件复制到临时目录，完全避开 WebTorrent 文件锁
+    const tempDir = path.join(appPath, 'temp_install');
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+    const tempInstallerPath = path.join(tempDir, exeFile);
+
+    try {
+      console.debug('复制安装文件到临时目录:', tempInstallerPath);
+      copyFileSync(installerPath, tempInstallerPath);
+    } catch (e) {
+      console.error('复制安装文件失败:', e);
+      throw new Error(`复制安装文件失败: ${e.message}`);
+    }
+
+    // 运行临时目录中的安装程序（静默安装）
+    const result = await commandLine.exec(tempInstallerPath, ['/s']);
     console.debug('安装结果', result);
 
     if (event) {
@@ -760,6 +842,191 @@ function formatSpeed(bytesPerSecond: number): string {
     return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
   } else {
     return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
+  }
+}
+
+// 获取本地已安装的 Obsidian 版本
+export async function getObsidianInstalledVersion(): Promise<string | null> {
+  try {
+    const result = await Promise.race([
+      new Promise<RunResult>((resolve, reject) =>
+        setTimeout(() => reject('getObsidianInstalledVersion命令超时'), 15000),
+      ),
+      commandLine.exec('powershell', [
+        '-Command',
+        `(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Obsidian*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DisplayVersion) -or (Get-ItemProperty 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Obsidian*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DisplayVersion) -or (Get-ItemProperty 'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Obsidian*' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DisplayVersion)`,
+      ]),
+    ]);
+    console.debug('getObsidianInstalledVersion', result);
+    // 解析版本号，通常格式为 "x.x.x"
+    const versionMatch = result.stdout.trim().match(/(\d+\.\d+\.\d+)/);
+    return versionMatch ? versionMatch[1] : null;
+  } catch (e) {
+    console.warn('获取 Obsidian 版本失败', e);
+    return null;
+  }
+}
+
+// 检查 Obsidian 是否需要更新
+export async function checkObsidianUpdate(): Promise<{
+  needUpdate: boolean;
+  installedVersion: string | null;
+  latestVersion: string | null;
+}> {
+  try {
+    const installedVersion = await getObsidianInstalledVersion();
+    const latestVersionInfo = getLatestVersion(OBSIDIAN_DLC_ID);
+    const latestVersion = latestVersionInfo.version;
+
+    const needUpdate =
+      installedVersion && latestVersion
+        ? isVersionOlder(installedVersion, latestVersion)
+        : false;
+
+    return { needUpdate, installedVersion, latestVersion };
+  } catch (e) {
+    console.error('检查 Obsidian 更新失败', e);
+    return { needUpdate: false, installedVersion: null, latestVersion: null };
+  }
+}
+
+// 使用 WebTorrent 从 dlc-index.json 下载并安装 Obsidian
+export async function installObsidianFromP2P(
+  event?: Electron.IpcMainEvent,
+): Promise<boolean> {
+  try {
+    // 从 dlc-index.json 获取最新版本信息
+    console.debug('正在获取 Obsidian 版本信息...');
+    if (event) {
+      event.reply(
+        channel,
+        MESSAGE_TYPE.PROGRESS,
+        '正在获取 Obsidian 版本信息...',
+      );
+    }
+
+    const latestVersionInfo = getLatestVersion(OBSIDIAN_DLC_ID);
+
+    const { version, dlcInfo } = latestVersionInfo;
+    const magnet = dlcInfo.magnet;
+
+    if (!magnet) {
+      throw new Error('DLC 索引中没有 magnet 链接');
+    }
+
+    console.debug(`开始通过 WebTorrent 下载 Obsidian v${version}...`);
+    if (event) {
+      event.reply(
+        channel,
+        MESSAGE_TYPE.PROGRESS,
+        `正在通过 P2P 下载 Obsidian v${version}...`,
+      );
+      event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+        percent: 0,
+        status: 'downloading',
+        message: `正在通过 P2P 下载 Obsidian v${version}...`,
+      });
+    }
+
+    // 启动 WebTorrent 下载
+    await startWebtorrent(magnet);
+
+    // 轮询下载进度并更新 UI
+    const pollProgressInterval = setInterval(() => {
+      const torrents = getActiveTorrents();
+      const torrent = torrents.find((t) =>
+        magnet.toLowerCase().includes(t.infoHash.toLowerCase()),
+      );
+      if (torrent && event) {
+        const percent = Math.round(torrent.progress * 100);
+        event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+          percent,
+          status: 'downloading',
+          message: `正在下载 Obsidian: ${percent}% (${formatSpeed(torrent.downloadSpeed)})`,
+        });
+      }
+    }, 1000);
+
+    // 等待下载完成
+    try {
+      await waitTorrentDone(OBSIDIAN_DLC_ID, version);
+    } finally {
+      clearInterval(pollProgressInterval);
+    }
+
+    console.debug('WebTorrent 下载完成，开始安装...');
+    if (event) {
+      event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+        percent: 100,
+        status: 'installing',
+        message: '下载完成，正在安装 Obsidian...',
+      });
+    }
+
+    // 查找下载的安装文件
+    const downloadPath = path.join(
+      appPath,
+      'external-resources',
+      'dlc',
+      OBSIDIAN_DLC_ID,
+      version,
+    );
+
+    // 查找 .exe 文件
+    const files = readdirSync(downloadPath);
+    const exeFile = files.find(
+      (f) => f.endsWith('.exe') && !f.endsWith('.torrent'),
+    );
+
+    if (!exeFile) {
+      throw new Error('下载目录中找不到安装程序');
+    }
+
+    const installerPath = path.join(downloadPath, exeFile);
+    console.debug('安装程序路径:', installerPath);
+
+    // 暂停 torrent 释放文件锁，避免 EBUSY 错误
+    try {
+      await pauseWebtorrent(magnet);
+      console.debug('已暂停 torrent，等待文件释放...');
+    } catch (e) {
+      console.warn('暂停 torrent 失败:', e);
+    }
+
+    // 等待文件句柄释放
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // 将安装文件复制到临时目录，完全避开 WebTorrent 文件锁
+    const tempDir = path.join(appPath, 'temp_install');
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+    const tempInstallerPath = path.join(tempDir, exeFile);
+
+    try {
+      console.debug('复制安装文件到临时目录:', tempInstallerPath);
+      copyFileSync(installerPath, tempInstallerPath);
+    } catch (e) {
+      console.error('复制安装文件失败:', e);
+      throw new Error(`复制安装文件失败: ${e.message}`);
+    }
+
+    // 运行临时目录中的安装程序（静默安装）
+    const result = await commandLine.exec(tempInstallerPath, ['/s']);
+    console.debug('安装结果', result);
+
+    if (event) {
+      event.reply(channel, MESSAGE_TYPE.DOWNLOAD_PROGRESS, {
+        percent: 100,
+        status: 'done',
+        message: 'Obsidian 安装完成',
+      });
+    }
+
+    return true;
+  } catch (e) {
+    console.error('安装 Obsidian 失败', e);
+    throw e;
   }
 }
 

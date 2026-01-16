@@ -8,7 +8,7 @@ import {
 } from './type-info';
 import { MESSAGE_TYPE, MessageData } from '../ipc-data-type';
 
-const REMOTE_INDEX_URL = 'https://yubopeng.site/index.json';
+const REMOTE_INDEX_URL = 'https://yubopeng.site/dlc-index.json';
 
 // 服务ID映射
 const SERVICE_ID_MAP: Record<ServiceName, string> = {
@@ -32,6 +32,8 @@ async function fetchRemoteIndex(): Promise<any[]> {
               });
               res.on('end', () => {
                 try {
+                  console.log('=== 远程版本信息 ===');
+                  console.log(data);
                   resolve(JSON.parse(data));
                 } catch (e) {
                   reject(new Error('解析远程版本信息失败'));

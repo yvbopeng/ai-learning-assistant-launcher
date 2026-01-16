@@ -13,6 +13,31 @@ body{
   overflow: hidden;
 }
 
+// 自定义滚动条样式
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+  
+  &:hover {
+    background: rgba(0, 0, 0, 0.25);
+  }
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .responsive-container {
   width: 100%;
   height: 100%;
@@ -65,9 +90,27 @@ body{
   height: 100vh;
   width: 100vw;
   font-family: 'Source Han Sans SC', sans-serif;
-  overflow: hidden;
+  overflow: auto; // 改为auto以支持滚动
   display: block; // 改为block布局
   background: #F5F5F5;
+  
+  // 允许滚动但隐藏滚动条（悬浮时显示）
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+    
+    &:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
+  }
   
   .scale-wrapper {
     transform-origin: center center; // 改为中心点作为变换原点
@@ -558,7 +601,7 @@ body{
         align-items: center;
         justify-content: space-between;
         padding: 0px;
-        gap: 24px;
+        gap: 16px;
         width: 100%;
         max-width: 1100px;
         min-height: 53px;
@@ -571,10 +614,10 @@ body{
         .version-info {
           display: flex;
           flex-direction: row;
-          justify-content: center;
+          justify-content: flex-start;
           align-items: center;
           padding: 0px;
-          gap: 10px;
+          gap: 8px;
           width: auto;
           min-height: 53px;
           font-family: 'Inter', sans-serif;
@@ -583,9 +626,87 @@ body{
           font-size: clamp(10px, 2vw, 12px);
           line-height: 16px;
           color: #737373;
-          flex: 1;
+          flex: 0 0 auto;
           order: 0;
           white-space: nowrap;
+          
+          .update-checking {
+            color: #1890ff;
+            font-size: 11px;
+            margin-left: 8px;
+            animation: pulse 1.5s ease-in-out infinite;
+          }
+        }
+        
+        // 更新操作区域样式
+        .update-section {
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          gap: 12px;
+          padding: 6px 12px;
+          background: linear-gradient(135deg, #f0f9eb 0%, #e8f5e9 100%);
+          border: 1px solid #b7eb8f;
+          border-radius: 8px;
+          animation: fadeIn 0.3s ease-in-out;
+          
+          .new-version-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 10px;
+            background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 12px;
+            white-space: nowrap;
+            box-shadow: 0 2px 4px rgba(82, 196, 26, 0.3);
+          }
+          
+          .download-progress {
+            width: 120px;
+            
+            .ant-progress-inner {
+              background-color: #e8e8e8;
+            }
+          }
+          
+          .update-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            
+            &.download {
+              background: #52c41a;
+              border-color: #52c41a;
+              
+              &:hover {
+                background: #73d13d;
+                border-color: #73d13d;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 6px rgba(82, 196, 26, 0.4);
+              }
+            }
+            
+            &.install {
+              background: #ff4d4f;
+              border-color: #ff4d4f;
+              animation: pulse 2s ease-in-out infinite;
+              
+              &:hover {
+                background: #ff7875;
+                border-color: #ff7875;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 6px rgba(255, 77, 79, 0.4);
+              }
+            }
+          }
         }
         
         .log-export {
@@ -594,12 +715,11 @@ body{
           justify-content: flex-end;
           align-items: center;
           padding: 8px 0;
-          gap: 10px;
+          gap: 8px;
           width: auto;
-          max-width: 300px;
           min-height: 53px;
-          flex: none;
-          order: 1;
+          flex: 0 0 auto;
+          order: 2;
           
           .status-indicator {
             box-sizing: border-box;
@@ -1303,5 +1423,34 @@ body{
   
   .hello-root .hello-container .hello-content .features-section .features-container .feature-card .feature-wrapper .feature-icon-text {
     padding: 0px 10px;
+  }
+
+  // 小屏幕下更新区域样式
+  .hello-root .hello-container .hello-content .hello-footer .update-section {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 8px;
+    gap: 8px;
+  }
+}
+
+// 动画 keyframes
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

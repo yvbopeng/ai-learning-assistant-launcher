@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Button, List, Skeleton } from 'antd';
+import { Button, List, Skeleton, Badge, Space, Progress } from 'antd';
 import { Link, NavLink } from 'react-router-dom';
 import './index.scss';
 import { channel } from '../../../main/cmd/type-info';
@@ -9,6 +9,8 @@ import useConfigs from '../../containers/use-configs';
 export default function ObsidianApp() {
   const {
     isInstallObsidian,
+    obsidianVersionInfo,
+    downloadProgress,
     action: cmdAction,
     loading: cmdLoading,
   } = useCmd();
@@ -63,9 +65,11 @@ export default function ObsidianApp() {
             !isInstallObsidian && (
               <Button
                 key={0}
+                type="primary"
                 onClick={() => cmdAction('install', 'obsidianApp')}
+                loading={cmdLoading && downloadProgress.status !== 'idle'}
               >
-                安装阅读器
+                下载并安装阅读器
               </Button>
             ),
             <Button
@@ -74,9 +78,20 @@ export default function ObsidianApp() {
             >
               {isInstallObsidian ? '重新定位阅读器' : '定位阅读器'}
             </Button>,
-            isInstallObsidian && (
+            isInstallObsidian && obsidianVersionInfo.needUpdate && (
               <Button
                 key={2}
+                type="primary"
+                danger
+                onClick={() => cmdAction('update', 'obsidianApp')}
+                loading={cmdLoading && downloadProgress.status !== 'idle'}
+              >
+                更新阅读器
+              </Button>
+            ),
+            isInstallObsidian && (
+              <Button
+                key={3}
                 type="primary"
                 onClick={() => cmdAction('start', 'obsidianApp')}
               >
@@ -86,8 +101,44 @@ export default function ObsidianApp() {
           ].filter((item) => item)}
         >
           <List.Item.Meta
-            title={`阅读器主程序`}
-            description={obsidianConfig?.obsidianApp?.bin}
+            title={
+              <Space>
+                <span>阅读器主程序</span>
+                {obsidianVersionInfo.installedVersion && (
+                  <Badge
+                    count={`v${obsidianVersionInfo.installedVersion}`}
+                    style={{ backgroundColor: '#52c41a' }}
+                  />
+                )}
+                {obsidianVersionInfo.needUpdate &&
+                  obsidianVersionInfo.latestVersion && (
+                    <Badge
+                      count={`最新: v${obsidianVersionInfo.latestVersion}`}
+                      style={{ backgroundColor: '#ff4d4f' }}
+                    />
+                  )}
+              </Space>
+            }
+            description={
+              <div>
+                <div>{obsidianConfig?.obsidianApp?.bin}</div>
+                {downloadProgress.status !== 'idle' && (
+                  <div style={{ marginTop: 8 }}>
+                    <Progress
+                      percent={downloadProgress.percent}
+                      status={
+                        downloadProgress.status === 'done'
+                          ? 'success'
+                          : 'active'
+                      }
+                    />
+                    <div style={{ fontSize: 12, color: '#666' }}>
+                      {downloadProgress.message}
+                    </div>
+                  </div>
+                )}
+              </div>
+            }
           />
         </List.Item>
       </List>

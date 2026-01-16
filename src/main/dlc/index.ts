@@ -223,6 +223,15 @@ export async function pauseWebtorrent(magnet: string) {
   const torrent = await client.get(magnet);
   if (torrent) {
     torrent.pause();
+    // 释放所有文件句柄
+    try {
+      for (const file of torrent.files) {
+        file.deselect();
+      }
+      console.debug('已释放所有文件句柄');
+    } catch (e) {
+      console.warn('释放文件句柄失败:', e);
+    }
   }
 }
 
@@ -432,12 +441,36 @@ export function isLatestVersion(id: DLCId, version: string): boolean {
   return compare(version, latestVersion) === 0;
 }
 
+/** 从 magnet 链接中提取 infoHash */
+function extractInfoHash(magnet: string): string | null {
+  try {
+    const url = new URL(magnet);
+    const xt = url.searchParams.get('xt');
+    if (xt) {
+      const hash = xt.split(':')?.pop();
+      return hash?.toLowerCase() || null;
+    }
+  } catch (error) {
+    console.error('解析magnet链接失败:', magnet, error);
+  }
+  return null;
+}
+
 export function getIndexVersionByMegnet(magnet: string) {
   const dLCIndex = getDLCIndex();
+  const targetInfoHash = extractInfoHash(magnet);
+
+  if (!targetInfoHash) {
+    console.warn('无法从 magnet 链接中提取 infoHash:', magnet);
+    return undefined;
+  }
+
   for (const dlc of dLCIndex) {
     for (const v in dlc.versions) {
       const version = dlc.versions[v];
-      if (version.magnet === magnet) {
+      const versionInfoHash = extractInfoHash(version.magnet);
+      // 通过 infoHash 匹配，而不是完整 magnet 链接
+      if (versionInfoHash && versionInfoHash === targetInfoHash) {
         return {
           dlc,
           version: v,

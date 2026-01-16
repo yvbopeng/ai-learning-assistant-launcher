@@ -24,6 +24,15 @@ export default function useCmd() {
     installedVersion: null,
     latestVersion: null,
   });
+  const [obsidianVersionInfo, setObsidianVersionInfo] = useState<{
+    needUpdate: boolean;
+    installedVersion: string | null;
+    latestVersion: string | null;
+  }>({
+    needUpdate: false,
+    installedVersion: null,
+    latestVersion: null,
+  });
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress>({
     percent: 0,
     status: 'idle',
@@ -60,6 +69,11 @@ export default function useCmd() {
       channel,
       'checkVersion',
       'lm-studio',
+    );
+    window.electron.ipcRenderer.sendMessage(
+      channel,
+      'checkVersion',
+      'obsidianApp',
     );
   }, [setCheckingWsl]);
   useEffect(() => {
@@ -117,10 +131,21 @@ export default function useCmd() {
                 });
               }
               setLoading(false);
+            } else if (service === 'obsidianApp') {
+              if (payload.installedVersion) {
+                setObsidianVersionInfo({
+                  needUpdate: payload.needUpdate,
+                  installedVersion: payload.installedVersion,
+                  latestVersion: payload.latestVersion,
+                });
+              }
+              setLoading(false);
             }
           } else if (actionName === 'checkVersion') {
             if (service === 'lm-studio') {
               setLmStudioVersionInfo(payload);
+            } else if (service === 'obsidianApp') {
+              setObsidianVersionInfo(payload);
             }
           }
         } else if (messageType === MESSAGE_TYPE.INFO) {
@@ -169,6 +194,7 @@ export default function useCmd() {
     isInstallObsidian,
     isInstallLMStudio,
     lmStudioVersionInfo,
+    obsidianVersionInfo,
     downloadProgress,
     checkingWsl,
     action,

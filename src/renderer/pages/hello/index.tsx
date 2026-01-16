@@ -171,15 +171,15 @@ export default function Hello() {
           // 比较版本号
           const currentVersion = __NPM_PACKAGE_VERSION__;
           if (versionInfo.latestVersion !== currentVersion) {
-            message.info(
-              `发现新版本: ${versionInfo.latestVersion}，当前版本: ${currentVersion}`,
-            );
-          } else {
-            message.success('已是最新版本');
+            notification.info({
+              message: '发现新版本',
+              description: `新版本 ${versionInfo.latestVersion} 可用，当前版本 ${currentVersion}`,
+              duration: 5,
+            });
           }
           setCheckingUpdate(false);
         } else if (messageType === MESSAGE_TYPE.ERROR) {
-          message.error(data as string);
+          console.error('检查更新失败:', data);
           setCheckingUpdate(false);
         }
       },
@@ -190,6 +190,16 @@ export default function Hello() {
       stopDownloadPolling();
     };
   }, [stopDownloadPolling]);
+
+  // 页面加载时自动检查更新
+  useEffect(() => {
+    // 延迟2秒自动检查更新，避免影响页面加载
+    const timer = setTimeout(() => {
+      checkForUpdate();
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [checkForUpdate]);
 
   const {
     isWSLInstalled,
@@ -749,58 +759,55 @@ export default function Hello() {
             <div className="hello-footer">
               <div className="version-info">
                 版本号：{__NPM_PACKAGE_VERSION__} 源码版本：{__COMMIT_HASH__}
-                {remoteVersionInfo &&
-                  remoteVersionInfo.latestVersion !==
-                    __NPM_PACKAGE_VERSION__ && (
-                    <span style={{ color: '#52c41a', marginLeft: '8px' }}>
-                      (有新版本: {remoteVersionInfo.latestVersion})
-                    </span>
-                  )}
-              </div>
-              {/* 下载进度条 */}
-              {downloading && (
-                <div style={{ width: '200px', marginRight: '16px' }}>
-                  <Progress percent={downloadProgress} size="small" />
-                </div>
-              )}
-              <div className="log-export">
-                {/* 更新按钮 */}
-                <Button
-                  className="status-indicator"
-                  onClick={checkForUpdate}
-                  loading={checkingUpdate}
-                  type="primary"
-                  style={{ marginRight: '8px' }}
-                >
-                  <span className="log-text">检查更新</span>
-                </Button>
-                {/* 下载按钮 - 仅在有新版本且未下载完成时显示 */}
-                {remoteVersionInfo &&
-                  remoteVersionInfo.latestVersion !== __NPM_PACKAGE_VERSION__ &&
-                  !downloadComplete && (
-                    <Button
-                      className="status-indicator"
-                      onClick={startDownload}
-                      loading={downloading}
-                      type="primary"
-                      style={{ marginRight: '8px' }}
-                    >
-                      <span className="log-text">下载更新</span>
-                    </Button>
-                  )}
-                {/* 安装按钮 - 仅在下载完成后显示 */}
-                {downloadComplete && downloadedZipPath && (
-                  <Button
-                    className="status-indicator"
-                    onClick={handleInstallUpdate}
-                    loading={installing}
-                    type="primary"
-                    danger
-                    style={{ marginRight: '8px' }}
-                  >
-                    <span className="log-text">安装更新</span>
-                  </Button>
+                {checkingUpdate && (
+                  <span className="update-checking">检查更新中...</span>
                 )}
+              </div>
+              {/* 更新操作区域 */}
+              {remoteVersionInfo &&
+                remoteVersionInfo.latestVersion !== __NPM_PACKAGE_VERSION__ && (
+                  <div className="update-section">
+                    <span className="new-version-badge">
+                      新版本 {remoteVersionInfo.latestVersion}
+                    </span>
+                    {/* 下载进度条 */}
+                    {downloading && (
+                      <div className="download-progress">
+                        <Progress
+                          percent={downloadProgress}
+                          size="small"
+                          strokeColor="#52c41a"
+                          trailColor="#e8e8e8"
+                        />
+                      </div>
+                    )}
+                    {/* 下载按钮 - 仅在有新版本且未下载完成时显示 */}
+                    {!downloadComplete && !downloading && (
+                      <Button
+                        className="update-button download"
+                        onClick={startDownload}
+                        type="primary"
+                        size="small"
+                      >
+                        下载更新
+                      </Button>
+                    )}
+                    {/* 安装按钮 - 仅在下载完成后显示 */}
+                    {downloadComplete && downloadedZipPath && (
+                      <Button
+                        className="update-button install"
+                        onClick={handleInstallUpdate}
+                        loading={installing}
+                        type="primary"
+                        danger
+                        size="small"
+                      >
+                        安装更新
+                      </Button>
+                    )}
+                  </div>
+                )}
+              <div className="log-export">
                 <Button
                   className="status-indicator"
                   onClick={handleExportLogs}
