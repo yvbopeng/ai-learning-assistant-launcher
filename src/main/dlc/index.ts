@@ -16,8 +16,6 @@ import { appPath } from '../exec';
 import fs, { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { compare } from 'semver';
 
-patchCA();
-
 let client: WebTorrent.Instance | null = null;
 const getWebTorrent = async () => {
   const WebTorrentClass: WebTorrent.WebTorrent =
