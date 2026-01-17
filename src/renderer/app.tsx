@@ -15,6 +15,7 @@ import PdfConvert from './pages/pdf-convert';
 import PdfConfig from './pages/pdf-config';
 import LLMConfig from './pages/llm-api-config';
 import VoiceRTCConfig from './pages/voice-rtc-config';
+import P2PTest from './pages/p2p-test';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/VOICE_RTC-config" element={<VoiceRTCConfig />} />
           <Route path="/PDF-config" element={<PdfConfig />} />
           <Route path="/pdf-convert" element={<PdfConvert />} />
+          <Route path="/p2p-test" element={<P2PTest />} />
           <Route
             path="/obsidian-plugin/:vaultId"
             element={<ObsidianPlugin />}
