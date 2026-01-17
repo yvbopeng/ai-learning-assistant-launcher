@@ -14,7 +14,6 @@ import WebTorrent, * as allExports from 'webtorrent';
 import path from 'path';
 import { appPath } from '../exec';
 import fs, { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
-import patchCA from './patch-ca';
 import { compare } from 'semver';
 
 patchCA();
