@@ -99,9 +99,9 @@ export async function startWebtorrent(magnet: string) {
       });
       console.debug('种子文件已经存在，继续下载');
       torrent.resume();
-      return torrent;
+      return { success: true, infoHash: torrent.infoHash };
     } else {
-      return client.add(
+      const newTorrent = client.add(
         magnet,
         {
           path: filePath,
@@ -114,9 +114,11 @@ export async function startWebtorrent(magnet: string) {
           saveTorrentFile(filePath, torrent);
         },
       );
+      return { success: true, infoHash: newTorrent.infoHash };
     }
   } else {
     console.warn('没找到链接对应的索引信息', magnet);
+    return { success: false, error: '没找到链接对应的索引信息' };
   }
 }
 
@@ -149,6 +151,34 @@ export async function pauseWebtorrent(magnet: string) {
   const torrent = await client.get(magnet);
   if (torrent) {
     torrent.pause();
+  }
+}
+
+/**
+ * 完全销毁种子并释放文件句柄
+ * 注意：这会关闭所有文件句柄，但不会删除已下载的文件
+ */
+export async function destroyWebtorrentForInstall(
+  magnet: string,
+): Promise<void> {
+  const torrent = await client.get(magnet);
+  if (torrent) {
+    return new Promise<void>((resolve) => {
+      // 先暂停下载
+      torrent.pause();
+
+      // 销毁种子，这会关闭所有文件句柄
+      torrent.destroy({ destroyStore: false }, () => {
+        console.debug('种子已销毁，文件句柄已释放:', torrent.infoHash);
+        resolve();
+      });
+
+      // 设置一个超时，防止回调永远不执行
+      setTimeout(() => {
+        console.debug('destroy回调超时，强制resolve');
+        resolve();
+      }, 3000);
+    });
   }
 }
 

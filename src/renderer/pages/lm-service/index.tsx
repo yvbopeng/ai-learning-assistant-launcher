@@ -1,7 +1,15 @@
-import { Button, List, notification, Popconfirm, Typography } from 'antd';
+import {
+  Button,
+  List,
+  message,
+  notification,
+  Popconfirm,
+  Progress,
+  Typography,
+} from 'antd';
 import { Link } from 'react-router-dom';
 import './index.scss';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActionName,
   LMModel,
@@ -61,6 +69,119 @@ export default function LMService() {
     serviceName: 'WSL',
     actionName: 'install',
   });
+
+  // LM Studio P2P 下载状态
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [isDownloadComplete, setIsDownloadComplete] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkLMStudioUpdate();
+  }, []);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (downloading && !isDownloadComplete) {
+        updateDownloadProgress();
+      }
+    }, 2000);
+
+    return () => clearInterval(intervalId);
+  }, [downloading, isDownloadComplete]);
+
+  const checkLMStudioUpdate = async () => {
+    // 检查是否已经有下载完成的文件
+    try {
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const lmStudioDLC = dlcIndex.find(
+        (item) => item.id === 'LM_STUDIO_SETUP_EXE',
+      );
+      if (lmStudioDLC) {
+        const version = Object.keys(lmStudioDLC.versions).sort().pop();
+        if (version) {
+          setLatestVersion(version);
+          const versionInfo = lmStudioDLC.versions[version];
+          if (versionInfo.progress && versionInfo.progress.progress >= 1) {
+            setIsDownloadComplete(true);
+            setDownloadProgress(100);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('检查LM Studio下载状态失败:', error);
+    }
+  };
+
+  const updateDownloadProgress = async () => {
+    try {
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const lmStudioDLC = dlcIndex.find(
+        (item) => item.id === 'LM_STUDIO_SETUP_EXE',
+      );
+      if (lmStudioDLC) {
+        const version = Object.keys(lmStudioDLC.versions).sort().pop();
+        if (version) {
+          const versionInfo = lmStudioDLC.versions[version];
+          if (versionInfo.progress) {
+            const progress = versionInfo.progress.progress || 0;
+            setDownloadProgress(Math.floor(progress * 100));
+            if (progress >= 1) {
+              setDownloading(false);
+              setIsDownloadComplete(true);
+              message.success('LM Studio下载完成，可以点击安装按钮进行安装');
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('获取LM Studio下载进度失败:', error);
+    }
+  };
+
+  const handleDownloadOrInstallLMStudio = async () => {
+    // 如果已经下载完成，直接安装
+    if (isDownloadComplete) {
+      clickCmd('install', 'lm-studio');
+      return;
+    }
+
+    // 否则开始下载
+    try {
+      setDownloading(true);
+      setDownloadProgress(0);
+      message.info('正在启动下载LM Studio...');
+
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const lmStudioDLC = dlcIndex.find(
+        (item) => item.id === 'LM_STUDIO_SETUP_EXE',
+      );
+
+      if (!lmStudioDLC) {
+        throw new Error('未找到LM Studio安装包信息');
+      }
+
+      const version = Object.keys(lmStudioDLC.versions).sort().pop();
+      if (!version) {
+        throw new Error('未找到可用版本');
+      }
+
+      setLatestVersion(version);
+      const versionInfo = lmStudioDLC.versions[version];
+      const magnet = versionInfo.magnet;
+
+      const result = await window.mainHandle.startWebtorrentHandle(magnet);
+      if (result.success) {
+        message.success(`开始下载LM Studio ${version}`);
+      } else {
+        throw new Error('error' in result ? result.error : '启动下载失败');
+      }
+    } catch (error) {
+      console.error('下载LM Studio失败:', error);
+      message.error('下载失败：' + (error as Error).message);
+      setDownloading(false);
+    }
+  };
   // const llmContainer = containers.filter(
   //   (item) => item.Names.indexOf() >= 0,
   // )[0];
@@ -144,22 +265,59 @@ export default function LMService() {
                 </Button>
               </Popconfirm>
               <div style={{ width: '20px', display: 'inline-block' }}></div>
-              <Button
-                disabled={isInstallLMStudio}
-                type="primary"
-                shape="round"
-                loading={
-                  checkingWsl ||
-                  (cmdLoading &&
-                    cmdOperating.serviceName === 'lm-studio' &&
-                    cmdOperating.actionName === 'install')
-                }
-                onClick={() => clickCmd('install', 'lm-studio')}
-              >
-                {isInstallLMStudio
-                  ? '已安装LMStudio'
-                  : '开启本地大模型前请点我安装LMStudio'}
-              </Button>
+              {/* 更新/安装 LM Studio */}
+              {isInstallLMStudio ? (
+                <Button type="primary" shape="round" disabled>
+                  已安装LMStudio
+                </Button>
+              ) : (
+                <div
+                  className={`download-wrapper ${
+                    downloading ? 'downloading' : ''
+                  } ${isDownloadComplete ? 'complete' : ''}`}
+                >
+                  <Button
+                    type={isDownloadComplete ? 'primary' : 'default'}
+                    shape="round"
+                    loading={
+                      checkingWsl ||
+                      (cmdLoading &&
+                        cmdOperating.serviceName === 'lm-studio' &&
+                        cmdOperating.actionName === 'install')
+                    }
+                    onClick={handleDownloadOrInstallLMStudio}
+                  >
+                    {isDownloadComplete
+                      ? `安装 ${latestVersion || ''}`
+                      : downloading
+                        ? '下载中...'
+                        : '下载并安装LMStudio'}
+                  </Button>
+                  {(downloading || isDownloadComplete) && (
+                    <div className="download-progress-container">
+                      <span className="progress-text">
+                        {isDownloadComplete
+                          ? '下载完成'
+                          : `${downloadProgress}%`}
+                      </span>
+                      <Progress
+                        percent={downloadProgress}
+                        size="small"
+                        showInfo={false}
+                        status={isDownloadComplete ? 'success' : 'active'}
+                        strokeColor={
+                          isDownloadComplete
+                            ? '#52c41a'
+                            : {
+                                '0%': '#108ee9',
+                                '100%': '#87d068',
+                              }
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         }

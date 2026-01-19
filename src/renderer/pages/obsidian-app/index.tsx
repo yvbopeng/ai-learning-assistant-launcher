@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { Button, List, Skeleton } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { Button, List, Skeleton, message, Progress } from 'antd';
 import { Link, NavLink } from 'react-router-dom';
 import './index.scss';
 import { channel } from '../../../main/cmd/type-info';
@@ -18,6 +18,145 @@ export default function ObsidianApp() {
     action: configsAction,
     loading: configsLoading,
   } = useConfigs();
+
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [isDownloadComplete, setIsDownloadComplete] = useState(false);
+
+  useEffect(() => {
+    checkObsidianUpdate();
+  }, []);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (downloading && !isDownloadComplete) {
+        updateDownloadProgress();
+      }
+    }, 2000);
+
+    return () => clearInterval(intervalId);
+  }, [downloading, isDownloadComplete]);
+
+  const checkObsidianUpdate = async () => {
+    // 检查是否已经有下载完成的文件
+    try {
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const obsidianDLC = dlcIndex.find(
+        (item) => item.id === 'OBSIDIAN_SETUP_EXE',
+      );
+      if (obsidianDLC) {
+        const latestVersion = Object.keys(obsidianDLC.versions).sort().pop();
+        if (latestVersion) {
+          const versionInfo = obsidianDLC.versions[latestVersion];
+          if (versionInfo.progress && versionInfo.progress.progress >= 1) {
+            setIsDownloadComplete(true);
+            setDownloadProgress(100);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('检查下载状态失败:', error);
+    }
+  };
+
+  const updateDownloadProgress = async () => {
+    try {
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const obsidianDLC = dlcIndex.find(
+        (item) => item.id === 'OBSIDIAN_SETUP_EXE',
+      );
+      if (obsidianDLC) {
+        const latestVersion = Object.keys(obsidianDLC.versions).sort().pop();
+        if (latestVersion) {
+          const versionInfo = obsidianDLC.versions[latestVersion];
+          if (versionInfo.progress) {
+            const progress = versionInfo.progress.progress || 0;
+            setDownloadProgress(Math.floor(progress * 100));
+            if (progress >= 1) {
+              setDownloading(false);
+              setIsDownloadComplete(true);
+              message.success('下载完成，可以点击安装按钮进行安装');
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('获取下载进度失败:', error);
+    }
+  };
+
+  const handleDownloadOrInstall = async () => {
+    // 如果已经下载完成，直接安装
+    if (isDownloadComplete) {
+      handleInstallObsidian();
+      return;
+    }
+
+    // 否则开始下载
+    try {
+      setDownloading(true);
+      setDownloadProgress(0);
+      message.info('正在启动下载...');
+
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const obsidianDLC = dlcIndex.find(
+        (item) => item.id === 'OBSIDIAN_SETUP_EXE',
+      );
+
+      if (!obsidianDLC) {
+        throw new Error('未找到Obsidian安装包信息');
+      }
+
+      const latestVersion = Object.keys(obsidianDLC.versions).sort().pop();
+      if (!latestVersion) {
+        throw new Error('未找到可用版本');
+      }
+
+      const versionInfo = obsidianDLC.versions[latestVersion];
+      const magnet = versionInfo.magnet;
+
+      const result = await window.mainHandle.startWebtorrentHandle(magnet);
+      if (result.success) {
+        message.success(`开始下载Obsidian ${latestVersion}`);
+      } else {
+        throw new Error('error' in result ? result.error : '启动下载失败');
+      }
+    } catch (error) {
+      console.error('下载Obsidian失败:', error);
+      message.error('下载失败：' + error.message);
+      setDownloading(false);
+    }
+  };
+
+  const handleInstallObsidian = async () => {
+    try {
+      const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
+      const obsidianDLC = dlcIndex.find(
+        (item) => item.id === 'OBSIDIAN_SETUP_EXE',
+      );
+
+      if (!obsidianDLC) {
+        throw new Error('未找到Obsidian安装包');
+      }
+
+      const latestVersion = Object.keys(obsidianDLC.versions).sort().pop();
+      if (!latestVersion) {
+        throw new Error('未找到可用版本');
+      }
+
+      const versionInfo = obsidianDLC.versions[latestVersion];
+      if (!versionInfo.progress || versionInfo.progress.progress < 1) {
+        message.warning('请先完成下载');
+        return;
+      }
+
+      message.info('正在打开安装程序...');
+      cmdAction('install', 'obsidianApp');
+    } catch (error) {
+      console.error('打开安装程序失败:', error);
+      message.error('失败：' + error.message);
+    }
+  };
 
   return (
     <div className="obsidian-app">
@@ -61,33 +200,86 @@ export default function ObsidianApp() {
         <List.Item
           actions={[
             !isInstallObsidian && (
-              <Button
-                key={0}
-                onClick={() => cmdAction('install', 'obsidianApp')}
+              <div
+                key="download"
+                className={`download-wrapper ${
+                  downloading ? 'downloading' : ''
+                } ${isDownloadComplete ? 'complete' : ''}`}
               >
-                安装阅读器
-              </Button>
+                <Button
+                  type={isDownloadComplete ? 'primary' : 'default'}
+                  shape="round"
+                  loading={downloading}
+                  onClick={handleDownloadOrInstall}
+                >
+                  {isDownloadComplete
+                    ? '安装Obsidian'
+                    : downloading
+                      ? '下载中...'
+                      : '更新Obsidian'}
+                </Button>
+                {(downloading || isDownloadComplete) && (
+                  <div className="download-progress-container">
+                    <span className="progress-text">
+                      {isDownloadComplete ? '下载完成' : `${downloadProgress}%`}
+                    </span>
+                    <Progress
+                      percent={downloadProgress}
+                      size="small"
+                      showInfo={false}
+                      status={isDownloadComplete ? 'success' : 'active'}
+                      strokeColor={
+                        isDownloadComplete
+                          ? '#52c41a'
+                          : {
+                              '0%': '#108ee9',
+                              '100%': '#87d068',
+                            }
+                      }
+                    />
+                  </div>
+                )}
+              </div>
             ),
             <Button
-              key={1}
+              key="locate"
               onClick={() => configsAction('update', 'obsidianApp')}
             >
-              {isInstallObsidian ? '重新定位阅读器' : '定位阅读器'}
+              {isInstallObsidian ? '重新定位Obsidian' : '定位Obsidian'}
             </Button>,
             isInstallObsidian && (
               <Button
-                key={2}
+                key="run"
                 type="primary"
                 onClick={() => cmdAction('start', 'obsidianApp')}
               >
-                运行阅读器
+                运行Obsidian
               </Button>
             ),
           ].filter((item) => item)}
         >
           <List.Item.Meta
-            title={`阅读器主程序`}
-            description={obsidianConfig?.obsidianApp?.bin}
+            title="Obsidian主程序"
+            description={obsidianConfig?.obsidianApp?.bin || '未安装'}
+          />
+        </List.Item>
+        {/* 老版本兼容 - 直接安装 */}
+        {/* 老版本兼容 - 直接安装 */}
+        <List.Item
+          actions={[
+            !isInstallObsidian && (
+              <Button
+                key={0}
+                onClick={() => cmdAction('install', 'obsidianApp')}
+              >
+                本地安装
+              </Button>
+            ),
+          ].filter((item) => item)}
+        >
+          <List.Item.Meta
+            title="使用本地安装包"
+            description="如果您已经下载了Obsidian安装包，可以直接使用本地安装"
           />
         </List.Item>
       </List>

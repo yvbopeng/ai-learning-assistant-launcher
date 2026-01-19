@@ -621,6 +621,15 @@ body{
               transform: translateY(-2px);
             }
             
+            // 更新按钮使用蓝色
+            &.update-button {
+              background: #1677ff;
+              
+              &:hover {
+                background: #1677ff;
+              }
+            }
+            
             .log-text {
               display: flex;
               flex-direction: row;

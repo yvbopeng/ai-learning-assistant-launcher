@@ -152,6 +152,7 @@ export default function Hello() {
 
   useEffect(() => {
     startAutoSlide();
+    checkLauncherUpdate();
 
     return () => {
       clearSlideInterval();
@@ -189,6 +190,12 @@ export default function Hello() {
   };
 
   const [trainingServiceRemoving, setTrainingServiceRemoving] = useState(false);
+  const [launcherUpdateInfo, setLauncherUpdateInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    haveNew: boolean;
+  } | null>(null);
+  const [launcherUpdating, setLauncherUpdating] = useState(false);
 
   const removeTrainingService = async () => {
     setTrainingServiceRemoving(true);
@@ -203,6 +210,50 @@ export default function Hello() {
     message.success('学科培训更新成功');
     setTrainingServiceStarting(false);
     setTrainingServiceRemoving(false);
+  };
+
+  const checkLauncherUpdate = async () => {
+    try {
+      const info = await window.mainHandle.checkLauncherUpdateHandle();
+      setLauncherUpdateInfo(info);
+    } catch (error) {
+      console.error('检查启动器更新失败:', error);
+    }
+  };
+
+  const handleLauncherUpdate = async () => {
+    if (!launcherUpdateInfo || !launcherUpdateInfo.haveNew) {
+      message.info('已是最新版本');
+      return;
+    }
+
+    setLauncherUpdating(true);
+    const hideLoading = message.loading('正在下载更新包...', 0);
+    try {
+      const downloadResult =
+        await window.mainHandle.downloadLauncherUpdateHandle();
+      hideLoading();
+
+      // 开发模式下不执行安装，直接提示
+      if (downloadResult.isDev) {
+        message.warning('开发模式下不支持自动更新，请手动解压');
+        return;
+      }
+
+      message.success('下载完成，准备安装...');
+      const result = await window.mainHandle.installLauncherUpdateHandle();
+      if (result.success) {
+        message.success(result.message);
+      } else {
+        message.warning(result.message);
+      }
+    } catch (error) {
+      hideLoading();
+      console.error('更新启动器失败:', error);
+      message.error('更新失败：' + error.message);
+    } finally {
+      setLauncherUpdating(false);
+    }
   };
 
   const wslStatusText = () => {
@@ -623,9 +674,18 @@ export default function Hello() {
                 版本号：{__NPM_PACKAGE_VERSION__} 源码版本：{__COMMIT_HASH__}
               </div>
               <div className="log-export">
-                <NavLink to="/p2p-test">
+                {/* <NavLink to="/p2p-test">
                   <Button className="manual-button">P2P测试</Button>
-                </NavLink>
+                </NavLink> */}
+                <Button
+                  className="status-indicator update-button"
+                  onClick={handleLauncherUpdate}
+                  loading={launcherUpdating}
+                >
+                  <span className="log-text">
+                    {launcherUpdateInfo?.haveNew ? '更新' : ''}
+                  </span>
+                </Button>
                 <Button
                   className="status-indicator"
                   onClick={handleExportLogs}

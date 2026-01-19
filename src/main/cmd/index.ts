@@ -488,6 +488,93 @@ async function checkWSLComponent() {
 }
 
 export async function installObsidian() {
+  try {
+    // 首先检查是否有P2P下载的文件
+    const { getDLCFromDLCIndex, destroyWebtorrentForInstall } = await import(
+      '../dlc'
+    );
+    const dlcInfo = getDLCFromDLCIndex('OBSIDIAN_SETUP_EXE');
+
+    if (dlcInfo) {
+      const latestVersion = Object.keys(dlcInfo.versions).sort().pop();
+      if (latestVersion) {
+        const versionInfo = dlcInfo.versions[latestVersion];
+
+        // 完全销毁 torrent 以释放文件句柄，避免 EBUSY 错误
+        if (versionInfo.magnet) {
+          try {
+            console.debug('开始销毁种子以释放文件句柄...');
+            await destroyWebtorrentForInstall(versionInfo.magnet);
+            // 等待额外的时间确保文件句柄完全释放
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            console.debug('种子已销毁，等待完成');
+          } catch (e) {
+            console.warn('销毁torrent失败:', e);
+          }
+        }
+
+        const downloadPath = path.join(
+          appPath,
+          'external-resources',
+          'dlc',
+          'OBSIDIAN_SETUP_EXE',
+          latestVersion,
+        );
+
+        const fs = await import('fs');
+        if (fs.existsSync(downloadPath)) {
+          const files = fs.readdirSync(downloadPath);
+          const exeFile = files.find((f: string) => f.endsWith('.exe'));
+
+          if (exeFile) {
+            const exePath = path.join(downloadPath, exeFile);
+
+            // 使用更激进的重试机制处理 EBUSY 错误
+            const maxRetries = 8;
+            for (let retry = 0; retry < maxRetries; retry++) {
+              try {
+                // 每次重试前等待更长时间，让文件句柄有充足时间释放
+                const waitTime = retry === 0 ? 1000 : 1000 + retry * 1000;
+                await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+                console.debug(
+                  `尝试执行安装程序 (${retry + 1}/${maxRetries})，等待了 ${waitTime}ms`,
+                );
+                const result = await commandLine.exec(exePath, ['/s']);
+                console.debug('安装程序执行成功:', result);
+                return true;
+              } catch (e) {
+                const isEBUSY = e.message && e.message.includes('EBUSY');
+                if (isEBUSY && retry < maxRetries - 1) {
+                  console.warn(
+                    `执行安装程序失败 (EBUSY)，重试 ${retry + 1}/${maxRetries}...`,
+                  );
+                } else if (isEBUSY) {
+                  // 所有重试都失败了，尝试最后一次长等待
+                  console.warn('所有重试都失败，尝试最后一次长等待（10秒）...');
+                  await new Promise((resolve) => setTimeout(resolve, 10000));
+                  try {
+                    const result = await commandLine.exec(exePath, ['/s']);
+                    console.debug('最后一次尝试成功:', result);
+                    return true;
+                  } catch (finalError) {
+                    console.error('最后一次尝试也失败了:', finalError);
+                    throw finalError;
+                  }
+                } else {
+                  throw e;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('尝试使用P2P下载包失败，使用默认方式:', error);
+  }
+
+  // 降级到原有的本地安装包方式
   const result = await commandLine.exec(
     path.join(
       appPath,
@@ -520,6 +607,93 @@ export async function isObsidianInstall() {
 }
 
 export async function installLMStudio() {
+  try {
+    // 首先检查是否有P2P下载的文件
+    const { getDLCFromDLCIndex, destroyWebtorrentForInstall } = await import(
+      '../dlc'
+    );
+    const dlcInfo = getDLCFromDLCIndex('LM_STUDIO_SETUP_EXE');
+
+    if (dlcInfo) {
+      const latestVersion = Object.keys(dlcInfo.versions).sort().pop();
+      if (latestVersion) {
+        const versionInfo = dlcInfo.versions[latestVersion];
+
+        // 完全销毁 torrent 以释放文件句柄，避免 EBUSY 错误
+        if (versionInfo.magnet) {
+          try {
+            console.debug('开始销毁LM Studio种子以释放文件句柄...');
+            await destroyWebtorrentForInstall(versionInfo.magnet);
+            // 等待额外的时间确保文件句柄完全释放
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            console.debug('种子已销毁，等待完成');
+          } catch (e) {
+            console.warn('销毁torrent失败:', e);
+          }
+        }
+
+        const downloadPath = path.join(
+          appPath,
+          'external-resources',
+          'dlc',
+          'LM_STUDIO_SETUP_EXE',
+          latestVersion,
+        );
+
+        const fs = await import('fs');
+        if (fs.existsSync(downloadPath)) {
+          const files = fs.readdirSync(downloadPath);
+          const exeFile = files.find((f: string) => f.endsWith('.exe'));
+
+          if (exeFile) {
+            const exePath = path.join(downloadPath, exeFile);
+
+            // 使用更激进的重试机制处理 EBUSY 错误
+            const maxRetries = 8;
+            for (let retry = 0; retry < maxRetries; retry++) {
+              try {
+                // 每次重试前等待更长时间，让文件句柄有充足时间释放
+                const waitTime = retry === 0 ? 1000 : 1000 + retry * 1000;
+                await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+                console.debug(
+                  `尝试执行LM Studio安装程序 (${retry + 1}/${maxRetries})，等待了 ${waitTime}ms`,
+                );
+                const result = await commandLine.exec(exePath, []);
+                console.debug('LM Studio安装程序执行成功:', result);
+                return true;
+              } catch (e) {
+                const isEBUSY = e.message && e.message.includes('EBUSY');
+                if (isEBUSY && retry < maxRetries - 1) {
+                  console.warn(
+                    `执行LM Studio安装程序失败 (EBUSY)，重试 ${retry + 1}/${maxRetries}...`,
+                  );
+                } else if (isEBUSY) {
+                  // 所有重试都失败了，尝试最后一次长等待
+                  console.warn('所有重试都失败，尝试最后一次长等待（10秒）...');
+                  await new Promise((resolve) => setTimeout(resolve, 10000));
+                  try {
+                    const result = await commandLine.exec(exePath, []);
+                    console.debug('最后一次尝试成功:', result);
+                    return true;
+                  } catch (finalError) {
+                    console.error('最后一次尝试也失败了:', finalError);
+                    throw finalError;
+                  }
+                } else {
+                  throw e;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('尝试使用P2P下载包失败，使用默认方式:', error);
+  }
+
+  // 降级到原有的本地安装包方式
   const result = await commandLine.exec(
     path.join(
       appPath,
