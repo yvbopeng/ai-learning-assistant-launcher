@@ -164,20 +164,18 @@ export async function destroyWebtorrentForInstall(
   const torrent = await client.get(magnet);
   if (torrent) {
     return new Promise<void>((resolve) => {
-      // 先暂停下载
+      let resolved = false;
+      const safeResolve = () => {
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
+      };
+
       torrent.pause();
+      torrent.destroy({ destroyStore: false }, safeResolve);
 
-      // 销毁种子，这会关闭所有文件句柄
-      torrent.destroy({ destroyStore: false }, () => {
-        console.debug('种子已销毁，文件句柄已释放:', torrent.infoHash);
-        resolve();
-      });
-
-      // 设置一个超时，防止回调永远不执行
-      setTimeout(() => {
-        console.debug('destroy回调超时，强制resolve');
-        resolve();
-      }, 3000);
+      setTimeout(safeResolve, 3000);
     });
   }
 }

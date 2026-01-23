@@ -7,10 +7,11 @@ import {
 } from './type-info';
 import {
   getLatestVersion,
-  isLatestVersion,
   startWebtorrent,
   waitTorrentDone,
+  destroyWebtorrentForInstall,
 } from '../dlc';
+import semver from 'semver';
 import path from 'path';
 import { appPath } from '../exec';
 import {
@@ -29,9 +30,10 @@ import packageJson from '../../../package.json';
 const currentVersion = packageJson.version;
 
 // 在 Electron 中使用 original-fs 处理 asar 打包后的文件操作
-// original-fs 是 Electron 内置的，需要通过 require 动态导入
+// original-fs 是 Electron 内置模块，API 与 Node.js fs 模块相同
+// 使用类型注解确保类型安全
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const originalFs = require('original-fs');
+const originalFs: typeof import('fs') = require('original-fs');
 
 export default async function init(ipcMain: IpcMain) {
   ipcHandle(ipcMain, checkLauncherUpdateHandle, async (_event) =>
@@ -51,10 +53,7 @@ export async function checkLauncherUpdate() {
       'AI_LEARNING_ASSISTANT_LAUNCHER',
     );
     const latestVersion = latestVersionInfo.version;
-    const haveNew = !isLatestVersion(
-      'AI_LEARNING_ASSISTANT_LAUNCHER',
-      currentVersion,
-    );
+    const haveNew = semver.lt(currentVersion, latestVersion);
 
     console.debug('检查启动器更新:', {
       currentVersion,
@@ -152,6 +151,13 @@ export async function installLauncherUpdate() {
     if (!zipFile) {
       throw new Error('未找到下载的更新包');
     }
+
+    // 销毁 WebTorrent 以释放文件句柄，避免后续读取 zip 文件时出现 EBUSY 错误
+    console.debug('[installLauncherUpdate] 销毁 WebTorrent 释放文件句柄...');
+    await destroyWebtorrentForInstall(latestVersionInfo.dlcInfo.magnet);
+    // 等待文件句柄完全释放
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.debug('[installLauncherUpdate] 文件句柄已释放');
 
     const zipPath = path.join(downloadPath, zipFile);
     console.debug('[installLauncherUpdate] zip文件路径:', zipPath);
