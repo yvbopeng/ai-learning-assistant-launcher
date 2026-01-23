@@ -274,11 +274,23 @@ export default function LMService() {
                 <div
                   className={`download-wrapper ${
                     downloading ? 'downloading' : ''
-                  } ${isDownloadComplete ? 'complete' : ''}`}
+                  } ${isDownloadComplete ? 'download-complete' : ''}`}
                 >
+                  {downloading && !isDownloadComplete && (
+                    <Progress
+                      type="circle"
+                      percent={Math.round(downloadProgress)}
+                      size={28}
+                      strokeWidth={10}
+                      strokeColor="#1677ff"
+                    />
+                  )}
                   <Button
                     type={isDownloadComplete ? 'primary' : 'default'}
                     shape="round"
+                    className={
+                      isDownloadComplete ? 'download-complete-btn' : ''
+                    }
                     loading={
                       checkingWsl ||
                       (cmdLoading &&
@@ -293,29 +305,6 @@ export default function LMService() {
                         ? '下载中...'
                         : '下载并安装LMStudio'}
                   </Button>
-                  {(downloading || isDownloadComplete) && (
-                    <div className="download-progress-container">
-                      <span className="progress-text">
-                        {isDownloadComplete
-                          ? '下载完成'
-                          : `${downloadProgress}%`}
-                      </span>
-                      <Progress
-                        percent={downloadProgress}
-                        size="small"
-                        showInfo={false}
-                        status={isDownloadComplete ? 'success' : 'active'}
-                        strokeColor={
-                          isDownloadComplete
-                            ? '#52c41a'
-                            : {
-                                '0%': '#108ee9',
-                                '100%': '#87d068',
-                              }
-                        }
-                      />
-                    </div>
-                  )}
                 </div>
               )}
             </div>

@@ -94,16 +94,16 @@ export async function downloadLauncherUpdate() {
     console.debug('启动器更新下载完成');
 
     // 检查是否为本地开发环境
-    // const isDev = !app.isPackaged;
-    // if (isDev) {
-    //   console.warn('当前为本地开发环境，启动器更新功能可能无法正常工作');
-    // }
+    const isDev = !app.isPackaged;
+    if (isDev) {
+      console.warn('当前为本地开发环境，启动器更新功能可能无法正常工作');
+    }
 
     return {
       success: true,
       version: latestVersionInfo.version,
       filePath: path.join(torrent.path, torrent.files[0].name),
-      // isDev,
+      isDev,
     };
   } catch (error) {
     console.error('下载启动器更新失败:', error);
@@ -115,13 +115,14 @@ export async function installLauncherUpdate() {
   console.debug('[installLauncherUpdate] 开始执行安装更新');
 
   // 如果是开发模式，不执行更新
-  // const isPackaged = app.isPackaged;
-  // if (!isPackaged) {
-  //   return {
-  //     success: false,
-  //     message: '开发模式下不支持自动更新，请手动解压',
-  //   };
-  // }
+  const isPackaged = app.isPackaged;
+  if (!isPackaged) {
+    console.warn('[installLauncherUpdate] 开发模式下不支持自动更新');
+    return {
+      success: false,
+      message: '开发模式下不支持自动更新，请手动解压',
+    };
+  }
 
   try {
     console.debug('[installLauncherUpdate] 获取最新版本信息...');
