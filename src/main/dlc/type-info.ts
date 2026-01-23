@@ -13,6 +13,12 @@ export const queryWebtorrentHandle = `${channel}query`;
 
 export const logsWebtorrentHandle = `${channel}logs`;
 
+export const setUploadEnabledHandle = `${channel}setUploadEnabled`;
+
+export const getUploadEnabledHandle = `${channel}getUploadEnabled`;
+
+export const getUploadStatsHandle = `${channel}getUploadStats`;
+
 export const dLCIds = [
   'PDF_TAR',
   'VOICE_TAR',

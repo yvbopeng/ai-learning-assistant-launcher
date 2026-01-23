@@ -29,6 +29,9 @@ import {
   removeWebtorrentHandle,
   startWebtorrentHandle,
   DLCId,
+  setUploadEnabledHandle,
+  getUploadEnabledHandle,
+  getUploadStatsHandle,
 } from './dlc/type-info';
 import {
   checkLauncherUpdateHandle,
@@ -171,6 +174,23 @@ const mainHandle = {
       success: boolean;
       message: string;
     }>(installLauncherUpdateHandle);
+  },
+  setUploadEnabledHandle: async (enabled: boolean) => {
+    return ipcInvoke<{ success: boolean; enabled: boolean }>(
+      setUploadEnabledHandle,
+      enabled,
+    );
+  },
+  getUploadEnabledHandle: async () => {
+    return ipcInvoke<{ enabled: boolean }>(getUploadEnabledHandle);
+  },
+  getUploadStatsHandle: async () => {
+    return ipcInvoke<{
+      enabled: boolean;
+      totalUploaded: number;
+      uploadSpeed: number;
+      activeTorrents: number;
+    }>(getUploadStatsHandle);
   },
 };
 
