@@ -92,7 +92,7 @@ export default function LMService() {
   }, [downloading, isDownloadComplete]);
 
   const checkLMStudioUpdate = async () => {
-    // 检查是否已经有下载完成的文件
+    // 检查是否已经有下载完成的文件，或正在下载中（用于恢复后台下载状态）
     try {
       const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
       const lmStudioDLC = dlcIndex.find(
@@ -103,9 +103,20 @@ export default function LMService() {
         if (version) {
           setLatestVersion(version);
           const versionInfo = lmStudioDLC.versions[version];
-          if (versionInfo.progress && versionInfo.progress.progress >= 1) {
-            setIsDownloadComplete(true);
-            setDownloadProgress(100);
+          if (versionInfo.progress) {
+            const progress = versionInfo.progress.progress || 0;
+            if (progress >= 1) {
+              // 下载已完成
+              setIsDownloadComplete(true);
+              setDownloadProgress(100);
+              setDownloading(false);
+            } else if (progress > 0) {
+              // 正在下载中，恢复下载状态
+              setDownloading(true);
+              setDownloadProgress(Math.floor(progress * 100));
+              setLmStudioMagnet(versionInfo.magnet);
+              setIsDownloadComplete(false);
+            }
           }
         }
       }

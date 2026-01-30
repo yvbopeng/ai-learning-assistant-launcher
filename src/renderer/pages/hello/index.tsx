@@ -263,7 +263,7 @@ export default function Hello() {
       const info = await window.mainHandle.checkLauncherUpdateHandle();
       setLauncherUpdateInfo(info);
 
-      // 检查是否已有下载完成的更新包
+      // 检查是否已有下载完成的更新包，或正在下载中（用于恢复后台下载状态）
       if (info?.haveNew) {
         const dlcIndex = await window.mainHandle.queryWebtorrentHandle();
         const dlc = dlcIndex.find(
@@ -271,9 +271,20 @@ export default function Hello() {
         );
         if (dlc) {
           const versionInfo = dlc.versions[info.latestVersion];
-          if (versionInfo?.progress?.progress >= 1) {
-            setLauncherDownloadComplete(true);
-            setLauncherDownloadProgress(100);
+          if (versionInfo?.progress) {
+            const progress = versionInfo.progress.progress || 0;
+            if (progress >= 1) {
+              // 下载已完成
+              setLauncherDownloadComplete(true);
+              setLauncherDownloadProgress(100);
+              setLauncherUpdating(false);
+            } else if (progress > 0) {
+              // 正在下载中，恢复下载状态
+              setLauncherUpdating(true);
+              setLauncherDownloadProgress(progress * 100);
+              setLauncherMagnet(versionInfo.magnet);
+              setLauncherDownloadComplete(false);
+            }
           }
         }
       }
