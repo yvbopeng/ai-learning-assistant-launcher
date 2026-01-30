@@ -337,11 +337,14 @@ export default function LMService() {
                           cmdOperating.serviceName === 'lm-studio' &&
                           cmdOperating.actionName === 'install')
                       }
+                      disabled={checkingWsl}
                       onClick={handleDownloadOrInstallLMStudio}
                     >
-                      {isDownloadComplete
-                        ? `安装 ${latestVersion || ''}`
-                        : '下载并安装LMStudio'}
+                      {checkingWsl
+                        ? '检测安装状态...'
+                        : isDownloadComplete
+                          ? `安装 ${latestVersion || ''}`
+                          : '下载并安装LMStudio'}
                     </Button>
                   )}
                 </div>
