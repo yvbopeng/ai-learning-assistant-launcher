@@ -32,9 +32,9 @@
     "id": "AI_LEARNING_ASSISTANT_LAUNCHER",
     "name": "AI学习助手启动器",
     "versions": {
-      "2.0.3": {
-        "magnet": "magnet:?xt=urn:btih:5e685a7cbe4045efc40f7a593dddfdf56ae7c59d&dn=AI-Learning-Assistant-Launcher-win32-x64-2.0.3.zip&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.btorrent.xyz",
-        "comment": "第一个版本",
+      "2.0.4": {
+        "magnet": "magnet:?xt=urn:btih:ea0ebea633f25e936c55a095f66f15d65089dcec&dn=AILearningAssistantLauncher-2.0.4-full.nupkg&tr=wss%3A%2F%2Ftracker.openwebtorrent.com",
+        "comment": "测试更新使用版本",
         "require": {}
       }
     }

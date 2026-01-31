@@ -14,26 +14,22 @@ import {
 import semver from 'semver';
 import path from 'path';
 import { appPath } from '../exec';
+import { existsSync } from 'fs';
 import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  statSync,
-  rmSync,
-  writeFileSync,
-  appendFileSync,
-} from 'fs';
+  readdir,
+  writeFile,
+  appendFile,
+  readFile,
+  stat,
+  access,
+  rename,
+  constants,
+} from 'fs/promises';
 import { spawn } from 'child_process';
-import AdmZip from 'adm-zip';
+import { createHash } from 'crypto';
 
 import packageJson from '../../../package.json';
 const currentVersion = packageJson.version;
-
-// 在 Electron 中使用 original-fs 处理 asar 打包后的文件操作
-// original-fs 是 Electron 内置模块，API 与 Node.js fs 模块相同
-// 使用类型注解确保类型安全
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const originalFs: typeof import('fs') = require('original-fs');
 
 // 更新日志文件路径
 const updateLogPath = path.join(appPath, 'launcher-update.log');
@@ -44,7 +40,7 @@ const updateLogPath = path.join(appPath, 'launcher-update.log');
  * @param message 日志消息
  * @param data 附加数据
  */
-function writeUpdateLog(
+async function writeUpdateLog(
   level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR',
   message: string,
   data?: unknown,
@@ -61,7 +57,7 @@ function writeUpdateLog(
   logLine += '\n';
 
   try {
-    appendFileSync(updateLogPath, logLine, { encoding: 'utf8' });
+    await appendFile(updateLogPath, logLine, { encoding: 'utf8' });
   } catch (err) {
     console.error('写入更新日志失败:', err);
   }
@@ -86,14 +82,14 @@ function writeUpdateLog(
 /**
  * 初始化日志文件（清空旧日志或添加分隔符）
  */
-function initUpdateLog() {
+async function initUpdateLog() {
   const separator = `
 ${'='.repeat(60)}
 [${new Date().toISOString()}] 启动器更新日志开始
 ${'='.repeat(60)}
 `;
   try {
-    appendFileSync(updateLogPath, separator, { encoding: 'utf8' });
+    await appendFile(updateLogPath, separator, { encoding: 'utf8' });
   } catch {
     // 忽略错误
   }
@@ -112,8 +108,8 @@ export default async function init(ipcMain: IpcMain) {
 }
 
 export async function checkLauncherUpdate() {
-  initUpdateLog();
-  writeUpdateLog('INFO', '[checkLauncherUpdate] 开始检查启动器更新');
+  await initUpdateLog();
+  await writeUpdateLog('INFO', '[checkLauncherUpdate] 开始检查启动器更新');
 
   try {
     const latestVersionInfo = getLatestVersion(
@@ -122,7 +118,7 @@ export async function checkLauncherUpdate() {
     const latestVersion = latestVersionInfo.version;
     const haveNew = semver.lt(currentVersion, latestVersion);
 
-    writeUpdateLog('INFO', '[checkLauncherUpdate] 检查启动器更新完成', {
+    await writeUpdateLog('INFO', '[checkLauncherUpdate] 检查启动器更新完成', {
       currentVersion,
       latestVersion,
       haveNew,
@@ -134,7 +130,7 @@ export async function checkLauncherUpdate() {
       haveNew,
     };
   } catch (error) {
-    writeUpdateLog(
+    await writeUpdateLog(
       'ERROR',
       '[checkLauncherUpdate] 检查启动器更新失败',
       error instanceof Error
@@ -150,20 +146,24 @@ export async function checkLauncherUpdate() {
 }
 
 export async function downloadLauncherUpdate() {
-  writeUpdateLog('INFO', '[downloadLauncherUpdate] 开始下载启动器更新');
+  await writeUpdateLog('INFO', '[downloadLauncherUpdate] 开始下载启动器更新');
 
   try {
     const latestVersionInfo = getLatestVersion(
       'AI_LEARNING_ASSISTANT_LAUNCHER',
     );
 
-    writeUpdateLog('DEBUG', '[downloadLauncherUpdate] 获取到最新版本信息', {
-      version: latestVersionInfo.version,
-      magnet: latestVersionInfo.dlcInfo?.magnet?.substring(0, 50) + '...',
-    });
+    await writeUpdateLog(
+      'DEBUG',
+      '[downloadLauncherUpdate] 获取到最新版本信息',
+      {
+        version: latestVersionInfo.version,
+        magnet: latestVersionInfo.dlcInfo?.magnet?.substring(0, 50) + '...',
+      },
+    );
 
     await startWebtorrent(latestVersionInfo.dlcInfo.magnet);
-    writeUpdateLog('DEBUG', '[downloadLauncherUpdate] WebTorrent 已启动');
+    await writeUpdateLog('DEBUG', '[downloadLauncherUpdate] WebTorrent 已启动');
 
     const torrent = await waitTorrentDone(
       'AI_LEARNING_ASSISTANT_LAUNCHER',
@@ -171,15 +171,19 @@ export async function downloadLauncherUpdate() {
     );
 
     const filePath = path.join(torrent.path, torrent.files[0].name);
-    writeUpdateLog('INFO', '[downloadLauncherUpdate] 启动器更新下载完成', {
-      path: torrent.path,
-      fileName: torrent.files[0].name,
-    });
+    await writeUpdateLog(
+      'INFO',
+      '[downloadLauncherUpdate] 启动器更新下载完成',
+      {
+        path: torrent.path,
+        fileName: torrent.files[0].name,
+      },
+    );
 
     // 检查是否为本地开发环境
     const isDev = !app.isPackaged;
     if (isDev) {
-      writeUpdateLog(
+      await writeUpdateLog(
         'WARN',
         '[downloadLauncherUpdate] 当前为本地开发环境，启动器更新功能可能无法正常工作',
       );
@@ -192,7 +196,7 @@ export async function downloadLauncherUpdate() {
       isDev,
     };
   } catch (error) {
-    writeUpdateLog(
+    await writeUpdateLog(
       'ERROR',
       '[downloadLauncherUpdate] 下载启动器更新失败',
       error instanceof Error
@@ -203,26 +207,177 @@ export async function downloadLauncherUpdate() {
   }
 }
 
+/**
+ * 获取 Squirrel Update.exe 的路径
+ * Squirrel 安装后，Update.exe 位于应用安装目录的上一级
+ */
+function getSquirrelUpdateExePath(): string | null {
+  const exePath = app.getPath('exe');
+  const exeDir = path.dirname(exePath);
+  // Squirrel 安装结构: <install_root>/Update.exe, <install_root>/app-x.x.x/app.exe
+  const updateExePath = path.join(exeDir, '..', 'Update.exe');
+
+  if (existsSync(updateExePath)) {
+    return path.resolve(updateExePath);
+  }
+  return null;
+}
+
+/**
+ * 计算文件的 SHA1 哈希值
+ */
+async function calculateSha1(filePath: string): Promise<string> {
+  const fileBuffer = await readFile(filePath);
+  const hash = createHash('sha1');
+  hash.update(fileBuffer);
+  return hash.digest('hex').toUpperCase();
+}
+
+/**
+ * 生成 Squirrel RELEASES 文件
+ * RELEASES 文件格式: SHA1 filename size
+ */
+async function generateReleasesFile(
+  nupkgPath: string,
+  outputDir: string,
+): Promise<string> {
+  const fileName = path.basename(nupkgPath);
+  const fileStat = await stat(nupkgPath);
+  const fileSize = fileStat.size;
+  const sha1Hash = await calculateSha1(nupkgPath);
+
+  const releasesContent = `${sha1Hash} ${fileName} ${fileSize}`;
+  const releasesPath = path.join(outputDir, 'RELEASES');
+
+  await writeFile(releasesPath, releasesContent, { encoding: 'utf8' });
+  await writeUpdateLog('INFO', '[generateReleasesFile] RELEASES 文件已生成', {
+    path: releasesPath,
+    content: releasesContent,
+  });
+
+  return releasesPath;
+}
+
+/**
+ * 等待文件句柄释放的重试配置
+ */
+const FILE_RELEASE_CONFIG = {
+  MAX_RETRIES: 10,
+  INITIAL_DELAY_MS: 200,
+  MAX_DELAY_MS: 2000,
+};
+
+/**
+ * 检测文件是否可访问（句柄已释放）
+ * 通过尝试 rename 操作来验证文件是否被占用
+ * @param filePath 文件路径
+ * @returns 是否可访问
+ */
+async function isFileAccessible(filePath: string): Promise<boolean> {
+  try {
+    // 检查文件是否可读
+    await access(filePath, constants.R_OK);
+
+    // 尝试 rename 到自身（Windows 下被占用的文件无法 rename）
+    // 这是检测文件句柄是否释放的可靠方法
+    const tempPath = filePath + '.tmp_check';
+    await rename(filePath, tempPath);
+    await rename(tempPath, filePath);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 等待文件句柄释放，使用指数退避重试机制
+ * @param filePath 文件路径
+ * @returns 文件是否可访问
+ */
+async function waitForFileRelease(filePath: string): Promise<void> {
+  let delay = FILE_RELEASE_CONFIG.INITIAL_DELAY_MS;
+
+  for (let attempt = 1; attempt <= FILE_RELEASE_CONFIG.MAX_RETRIES; attempt++) {
+    const accessible = await isFileAccessible(filePath);
+
+    if (accessible) {
+      await writeUpdateLog('DEBUG', '[waitForFileRelease] 文件句柄已释放', {
+        filePath,
+        attempt,
+      });
+      return;
+    }
+
+    await writeUpdateLog(
+      'DEBUG',
+      '[waitForFileRelease] 文件仍被占用，等待重试',
+      {
+        filePath,
+        attempt,
+        nextDelayMs: delay,
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, delay));
+
+    // 指数退避，但不超过最大延迟
+    delay = Math.min(delay * 2, FILE_RELEASE_CONFIG.MAX_DELAY_MS);
+  }
+
+  throw new Error(
+    `文件句柄释放超时: ${filePath}，已重试 ${FILE_RELEASE_CONFIG.MAX_RETRIES} 次`,
+  );
+}
+
 export async function installLauncherUpdate() {
-  writeUpdateLog('INFO', '[installLauncherUpdate] 开始执行安装更新');
+  await writeUpdateLog(
+    'INFO',
+    '[installLauncherUpdate] 开始执行 Squirrel 更新',
+  );
 
   // 如果是开发模式，不执行更新
   const isPackaged = app.isPackaged;
   if (!isPackaged) {
-    writeUpdateLog('WARN', '[installLauncherUpdate] 开发模式下不支持自动更新');
+    await writeUpdateLog(
+      'WARN',
+      '[installLauncherUpdate] 开发模式下不支持自动更新',
+    );
     return {
       success: false,
-      message: '开发模式下不支持自动更新，请手动解压',
+      message: '开发模式下不支持自动更新',
     };
   }
 
+  // 检查是否为 Squirrel 安装
+  const updateExePath = getSquirrelUpdateExePath();
+  if (!updateExePath) {
+    await writeUpdateLog(
+      'WARN',
+      '[installLauncherUpdate] 未检测到 Squirrel 安装，无法使用 Squirrel 更新',
+    );
+    return {
+      success: false,
+      message: '当前安装方式不支持 Squirrel 自动更新，请手动下载安装包更新',
+    };
+  }
+
+  await writeUpdateLog(
+    'DEBUG',
+    '[installLauncherUpdate] 检测到 Update.exe:',
+    updateExePath,
+  );
+
   try {
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 获取最新版本信息...');
+    await writeUpdateLog(
+      'DEBUG',
+      '[installLauncherUpdate] 获取最新版本信息...',
+    );
     const latestVersionInfo = getLatestVersion(
       'AI_LEARNING_ASSISTANT_LAUNCHER',
     );
     const version = latestVersionInfo.version;
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 最新版本:', version);
+    await writeUpdateLog('DEBUG', '[installLauncherUpdate] 最新版本:', version);
 
     const downloadPath = path.join(
       appPath,
@@ -231,193 +386,65 @@ export async function installLauncherUpdate() {
       'AI_LEARNING_ASSISTANT_LAUNCHER',
       version,
     );
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 下载路径:', downloadPath);
-    writeUpdateLog(
+    await writeUpdateLog(
+      'DEBUG',
+      '[installLauncherUpdate] 下载路径:',
+      downloadPath,
+    );
+    await writeUpdateLog(
       'DEBUG',
       '[installLauncherUpdate] 下载路径是否存在:',
       existsSync(downloadPath),
     );
 
-    const files = readdirSync(downloadPath);
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 下载目录文件列表:', files);
-    const zipFile = files.find((f) => f.endsWith('.zip'));
-
-    if (!zipFile) {
-      writeUpdateLog('ERROR', '[installLauncherUpdate] 未找到下载的更新包');
-      throw new Error('未找到下载的更新包');
+    if (!existsSync(downloadPath)) {
+      await writeUpdateLog('ERROR', '[installLauncherUpdate] 下载目录不存在');
+      throw new Error('更新包未下载，请先下载更新包');
     }
 
-    // 销毁 WebTorrent 以释放文件句柄，避免后续读取 zip 文件时出现 EBUSY 错误
-    writeUpdateLog(
+    const files = await readdir(downloadPath);
+    await writeUpdateLog(
+      'DEBUG',
+      '[installLauncherUpdate] 下载目录文件列表:',
+      files,
+    );
+
+    // 查找 .nupkg 文件
+    const nupkgFile = files.find((f) => f.endsWith('.nupkg'));
+    if (!nupkgFile) {
+      await writeUpdateLog(
+        'ERROR',
+        '[installLauncherUpdate] 未找到 .nupkg 更新包',
+      );
+      throw new Error('未找到 .nupkg 更新包');
+    }
+
+    const nupkgPath = path.join(downloadPath, nupkgFile);
+    await writeUpdateLog(
+      'DEBUG',
+      '[installLauncherUpdate] nupkg 文件路径:',
+      nupkgPath,
+    );
+
+    // 销毁 WebTorrent 以释放文件句柄
+    await writeUpdateLog(
       'DEBUG',
       '[installLauncherUpdate] 销毁 WebTorrent 释放文件句柄...',
     );
     await destroyWebtorrentForInstall(latestVersionInfo.dlcInfo.magnet);
-    // 等待文件句柄完全释放
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 文件句柄已释放');
 
-    const zipPath = path.join(downloadPath, zipFile);
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] zip文件路径:', zipPath);
-    writeUpdateLog(
-      'DEBUG',
-      '[installLauncherUpdate] zip文件是否存在:',
-      existsSync(zipPath),
+    // 使用重试机制等待文件句柄释放
+    await waitForFileRelease(nupkgPath);
+    await writeUpdateLog('DEBUG', '[installLauncherUpdate] 文件句柄已释放');
+
+    // 生成 RELEASES 文件（Squirrel 需要此文件来确定更新信息）
+    await writeUpdateLog(
+      'INFO',
+      '[installLauncherUpdate] 生成 RELEASES 文件...',
     );
+    await generateReleasesFile(nupkgPath, downloadPath);
 
-    const tempDir = path.join(appPath, 'update-temp');
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 临时目录:', tempDir);
-    if (existsSync(tempDir)) {
-      writeUpdateLog(
-        'DEBUG',
-        '[installLauncherUpdate] 清理已存在的临时目录...',
-      );
-      rmSync(tempDir, { recursive: true, force: true });
-      writeUpdateLog('DEBUG', '[installLauncherUpdate] 临时目录清理完成');
-    }
-    mkdirSync(tempDir, { recursive: true });
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 临时目录已创建');
-
-    // 使用 adm-zip 解压 zip 文件
-    writeUpdateLog('INFO', '[installLauncherUpdate] 正在解压文件...');
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] ZIP路径:', zipPath);
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 目标路径:', tempDir);
-
-    try {
-      const zip = new AdmZip(zipPath);
-      const zipEntries = zip.getEntries();
-      writeUpdateLog(
-        'DEBUG',
-        '[installLauncherUpdate] ZIP包含的文件数量:',
-        zipEntries.length,
-      );
-      writeUpdateLog(
-        'DEBUG',
-        '[installLauncherUpdate] ZIP包含的文件列表:',
-        zipEntries.slice(0, 5).map((e) => e.entryName),
-      );
-
-      // 手动解压每个文件，使用 original-fs 避免 asar 打包问题和 Windows 下的 chmod 问题
-      for (const entry of zipEntries) {
-        const entryPath = path.join(tempDir, entry.entryName);
-        if (entry.isDirectory) {
-          // 创建目录
-          if (!originalFs.existsSync(entryPath)) {
-            originalFs.mkdirSync(entryPath, { recursive: true });
-          }
-        } else {
-          // 确保父目录存在
-          const parentDir = path.dirname(entryPath);
-          if (!originalFs.existsSync(parentDir)) {
-            originalFs.mkdirSync(parentDir, { recursive: true });
-          }
-          // 写入文件
-          const content = entry.getData();
-          originalFs.writeFileSync(entryPath, content);
-        }
-      }
-      writeUpdateLog('INFO', '[installLauncherUpdate] 解压完成');
-    } catch (extractError) {
-      writeUpdateLog(
-        'ERROR',
-        '[installLauncherUpdate] 解压失败',
-        extractError instanceof Error
-          ? { message: extractError.message, stack: extractError.stack }
-          : extractError,
-      );
-      throw extractError;
-    }
-
-    // 查找解压后的目录（通常会有一个子目录）
-    const extractedItems = readdirSync(tempDir);
-    writeUpdateLog(
-      'DEBUG',
-      '[installLauncherUpdate] 解压后的文件数量:',
-      extractedItems.length,
-    );
-    writeUpdateLog(
-      'DEBUG',
-      '[installLauncherUpdate] 解压后的文件列表:',
-      extractedItems,
-    );
-
-    let sourceDir = tempDir;
-    if (extractedItems.length === 1) {
-      const subPath = path.join(tempDir, extractedItems[0]);
-      const subStat = statSync(subPath);
-      writeUpdateLog('DEBUG', '[installLauncherUpdate] 检查子路径:', subPath);
-      writeUpdateLog(
-        'DEBUG',
-        '[installLauncherUpdate] 是否为目录:',
-        subStat.isDirectory(),
-      );
-      if (subStat.isDirectory()) {
-        sourceDir = subPath;
-        const subItems = readdirSync(sourceDir);
-        writeUpdateLog(
-          'DEBUG',
-          '[installLauncherUpdate] 子目录文件列表:',
-          subItems,
-        );
-      }
-    }
-
-    writeUpdateLog('DEBUG', '[installLauncherUpdate] 解压源目录:', sourceDir);
-
-    const findExe = (dir: string): string | null => {
-      const items = readdirSync(dir);
-      for (const item of items) {
-        const fullPath = path.join(dir, item);
-        const stat = statSync(fullPath);
-        if (stat.isDirectory()) {
-          const result = findExe(fullPath);
-          if (result) return result;
-        } else if (
-          item.endsWith('.exe') &&
-          item.includes('AI-Learning-Assistant-Launcher')
-        ) {
-          return fullPath;
-        }
-      }
-      return null;
-    };
-
-    const newExePath = findExe(sourceDir);
-
-    if (!newExePath) {
-      writeUpdateLog(
-        'ERROR',
-        '[installLauncherUpdate] 未在更新包中找到启动器可执行文件',
-      );
-      throw new Error('未在更新包中找到启动器可执行文件');
-    }
-
-    writeUpdateLog(
-      'DEBUG',
-      '[installLauncherUpdate] 找到新版本可执行文件:',
-      newExePath,
-    );
-
-    const currentExePath = app.getPath('exe');
-    const currentExeDir = path.dirname(currentExePath);
-    const currentExeName = path.basename(currentExePath);
-
-    const backupPath = path.join(currentExeDir, `${currentExeName}.old`);
-
-    // 找到新版本可执行文件所在目录的所有文件
-    const newExeDir = path.dirname(newExePath);
-    writeUpdateLog(
-      'DEBUG',
-      '[installLauncherUpdate] 新版本文件目录:',
-      newExeDir,
-    );
-    writeUpdateLog('INFO', '[installLauncherUpdate] 更新路径信息', {
-      currentExePath,
-      currentExeDir,
-      backupPath,
-      newExeDir,
-    });
-
+    // 显示更新确认对话框
     const result = await dialog.showMessageBox({
       type: 'info',
       title: '准备更新',
@@ -429,147 +456,55 @@ export async function installLauncherUpdate() {
     });
 
     if (result.response === 0) {
-      writeUpdateLog(
+      await writeUpdateLog(
         'INFO',
-        '[installLauncherUpdate] 用户确认更新，准备执行更新',
+        '[installLauncherUpdate] 用户确认更新，准备执行 Squirrel 更新',
       );
 
-      // 创建更新脚本，在应用退出后执行
-      const updateScriptPath = path.join(appPath, 'update.bat');
-      // bat 脚本也写入日志文件，方便追踪更新过程（Windows BAT 脚本路径不需要转义）
-      const batLogPath = updateLogPath;
-      const updateScript = `@echo off
-chcp 65001
-echo ===================================
-echo 正在更新启动器...
-echo ===================================
-
-REM 写入日志函数
-set "LOG_FILE=${batLogPath}"
-echo [%date% %time%] [BAT] 更新脚本开始执行 >> "%LOG_FILE%"
-
-REM 等待应用完全退出并释放文件句柄
-echo 等待应用退出...
-echo [%date% %time%] [BAT] 等待应用退出... >> "%LOG_FILE%"
-timeout /t 3 /nobreak >nul
-
-REM 删除旧备份
-if exist "${backupPath}" (
-    echo 删除旧备份...
-    echo [%date% %time%] [BAT] 删除旧备份: ${backupPath} >> "%LOG_FILE%"
-    del /f /q "${backupPath}"
-)
-
-REM 备份当前版本的可执行文件
-if exist "${currentExePath}" (
-    echo 备份当前版本...
-    echo [%date% %time%] [BAT] 备份当前版本: ${currentExePath} -^> ${backupPath} >> "%LOG_FILE%"
-    move /y "${currentExePath}" "${backupPath}"
-    if errorlevel 1 (
-        echo 备份失败！
-        echo [%date% %time%] [BAT] [ERROR] 备份失败！ >> "%LOG_FILE%"
-        pause
-        exit /b 1
-    )
-    echo [%date% %time%] [BAT] 备份成功 >> "%LOG_FILE%"
-)
-
-REM 使用 robocopy 复制新版本的所有文件到当前目录
-echo 正在复制文件...
-echo [%date% %time%] [BAT] 开始复制文件: ${newExeDir} -^> ${currentExeDir} >> "%LOG_FILE%"
-robocopy "${newExeDir}" "${currentExeDir}" /E /IS /IT /NFL /NDL /NP
-
-REM robocopy 返回值说明：
-REM 0 = 没有文件被复制
-REM 1 = 所有文件复制成功
-REM 2 = 有额外的文件或目录
-REM 3 = 有文件被复制，也有不匹配的文件
-REM 4 = 有不匹配的文件或目录
-REM 5 = 有文件被复制，也有不匹配的文件或目录
-REM 6 = 有额外的文件/目录和不匹配的文件
-REM 7 = 文件被复制，有额外的文件和不匹配的文件
-REM 8+ = 有错误
-
-if %ERRORLEVEL% GEQ 8 (
-    echo ===================================
-    echo 复制文件失败！错误码: %ERRORLEVEL%
-    echo 正在恢复原版本...
-    echo ===================================
-    echo [%date% %time%] [BAT] [ERROR] 复制文件失败！错误码: %ERRORLEVEL% >> "%LOG_FILE%"
-    if exist "${backupPath}" (
-        move /y "${backupPath}" "${currentExePath}"
-        echo [%date% %time%] [BAT] 已恢复原版本 >> "%LOG_FILE%"
-    )
-    echo 更新失败，已恢复原版本
-    pause
-    exit /b 1
-)
-
-echo 文件复制完成，错误码: %ERRORLEVEL%
-echo [%date% %time%] [BAT] 文件复制完成，错误码: %ERRORLEVEL% >> "%LOG_FILE%"
-
-REM 清理临时文件
-echo 清理临时文件...
-echo [%date% %time%] [BAT] 清理临时文件: ${tempDir} >> "%LOG_FILE%"
-if exist "${tempDir}" (
-    rmdir /s /q "${tempDir}" 2>nul
-)
-echo [%date% %time%] [BAT] 临时文件清理完成 >> "%LOG_FILE%"
-
-REM 启动新版本
-echo ===================================
-echo 启动新版本...
-echo ===================================
-echo [%date% %time%] [BAT] 启动新版本: ${currentExePath} >> "%LOG_FILE%"
-start "" "${currentExePath}"
-
-REM 等待一下确保应用启动
-timeout /t 2 /nobreak >nul
-echo [%date% %time%] [BAT] 更新脚本执行完成 >> "%LOG_FILE%"
-
-REM 删除更新脚本自身
-(goto) 2>nul & del "%~f0"
-`;
-
-      writeFileSync(updateScriptPath, updateScript, { encoding: 'utf8' });
-      writeUpdateLog(
+      // 使用 Squirrel 的 Update.exe 执行更新
+      // 参数 --update=<path> 指定包含 RELEASES 和 .nupkg 的目录
+      await writeUpdateLog(
         'INFO',
-        '[installLauncherUpdate] 更新脚本已创建:',
-        updateScriptPath,
+        '[installLauncherUpdate] 调用 Squirrel Update.exe',
+        {
+          updateExePath,
+          updatePath: downloadPath,
+        },
       );
 
-      // 使用 detached 模式启动更新脚本
-      const updateProcess = spawn('cmd.exe', ['/c', updateScriptPath], {
+      const updateProcess = spawn(updateExePath, ['--update', downloadPath], {
         detached: true,
         stdio: 'ignore',
-        windowsHide: false,
       });
 
       updateProcess.unref();
-      writeUpdateLog('INFO', '[installLauncherUpdate] 更新脚本已启动');
+      await writeUpdateLog(
+        'INFO',
+        '[installLauncherUpdate] Squirrel 更新进程已启动',
+      );
 
-      // 延迟退出，确保更新脚本已经启动
-      // 注意：这里不使用 app.relaunch()，而是让更新脚本完成后手动启动新版本
-      setTimeout(() => {
-        writeUpdateLog('INFO', '[installLauncherUpdate] 准备退出应用');
-        app.exit(0);
-      }, 1000);
+      // 延迟退出应用，让 Squirrel 接管更新流程
+      setTimeout(async () => {
+        await writeUpdateLog('INFO', '[installLauncherUpdate] 准备退出应用');
+        // Squirrel 会在更新完成后自动重启应用
+        app.quit();
+      }, 1500);
 
       return {
         success: true,
-        message: '正在更新启动器...',
+        message: '正在通过 Squirrel 更新启动器...',
       };
     } else {
-      writeUpdateLog('INFO', '[installLauncherUpdate] 用户取消更新');
+      await writeUpdateLog('INFO', '[installLauncherUpdate] 用户取消更新');
       return {
         success: false,
         message: '用户取消更新',
       };
     }
   } catch (error) {
-    writeUpdateLog(
+    await writeUpdateLog(
       'ERROR',
-      '[installLauncherUpdate] 安装启动器更新失败',
+      '[installLauncherUpdate] Squirrel 更新失败',
       error instanceof Error
         ? { message: error.message, stack: error.stack }
         : error,
