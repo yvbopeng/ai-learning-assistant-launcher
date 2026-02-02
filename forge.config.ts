@@ -20,13 +20,7 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({
-      name: 'AILearningAssistantLauncher',
-      authors: 'James Zhang',
-      description: 'AI Learning Assistant Launcher',
-      // 设置图标路径
-      setupIcon: path.join(__dirname, 'icons', 'icon.ico'),
-    }),
+    // new MakerSquirrel({}),
     new MakerZIP({}, ['darwin', 'win32']),
     // new MakerRpm({}),
     // new MakerDeb({})
