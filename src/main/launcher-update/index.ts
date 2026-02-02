@@ -14,19 +14,16 @@ import {
 import semver from 'semver';
 import path from 'path';
 import { appPath } from '../exec';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import {
   readdir,
   writeFile,
   appendFile,
-  readFile,
-  stat,
   access,
   rename,
   constants,
 } from 'fs/promises';
 import { spawn } from 'child_process';
-import { createHash } from 'crypto';
 
 import packageJson from '../../../package.json';
 const currentVersion = packageJson.version;
@@ -180,7 +177,7 @@ export async function downloadLauncherUpdate() {
       },
     );
 
-    // 检查是否为本地开发环境
+    // 检查是否为本地开发环境，请打包后测试
     const isDev = !app.isPackaged;
     if (isDev) {
       await writeUpdateLog(
@@ -208,54 +205,100 @@ export async function downloadLauncherUpdate() {
 }
 
 /**
- * 获取 Squirrel Update.exe 的路径
- * Squirrel 安装后，Update.exe 位于应用安装目录的上一级
+ * 生成自定义更新批处理脚本
+ * 脚本功能：等待应用退出、备份用户数据、解压更新包、替换文件、恢复数据、启动新版本
  */
-function getSquirrelUpdateExePath(): string | null {
-  const exePath = app.getPath('exe');
-  const exeDir = path.dirname(exePath);
-  // Squirrel 安装结构: <install_root>/Update.exe, <install_root>/app-x.x.x/app.exe
-  const updateExePath = path.join(exeDir, '..', 'Update.exe');
-
-  if (existsSync(updateExePath)) {
-    return path.resolve(updateExePath);
-  }
-  return null;
-}
-
-/**
- * 计算文件的 SHA1 哈希值
- */
-async function calculateSha1(filePath: string): Promise<string> {
-  const fileBuffer = await readFile(filePath);
-  const hash = createHash('sha1');
-  hash.update(fileBuffer);
-  return hash.digest('hex').toUpperCase();
-}
-
-/**
- * 生成 Squirrel RELEASES 文件
- * RELEASES 文件格式: SHA1 filename size
- */
-async function generateReleasesFile(
-  nupkgPath: string,
-  outputDir: string,
+async function generateUpdateScript(
+  zipPath: string,
+  appDir: string,
+  tempDir: string,
+  newVersion: string,
 ): Promise<string> {
-  const fileName = path.basename(nupkgPath);
-  const fileStat = await stat(nupkgPath);
-  const fileSize = fileStat.size;
-  const sha1Hash = await calculateSha1(nupkgPath);
+  const scriptContent = `@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
 
-  const releasesContent = `${sha1Hash} ${fileName} ${fileSize}`;
-  const releasesPath = path.join(outputDir, 'RELEASES');
+set "ZIP_PATH=${zipPath.replace(/\//g, '\\')}"
+set "APP_DIR=${appDir.replace(/\//g, '\\')}"
+set "TEMP_DIR=${tempDir.replace(/\//g, '\\')}"
+set "BACKUP_DIR=${tempDir.replace(/\//g, '\\')}\\external-resources-backup"
+set "EXTRACT_DIR=${tempDir.replace(/\//g, '\\')}\\extracted"
 
-  await writeFile(releasesPath, releasesContent, { encoding: 'utf8' });
-  await writeUpdateLog('INFO', '[generateReleasesFile] RELEASES 文件已生成', {
-    path: releasesPath,
-    content: releasesContent,
+echo [更新] 等待应用退出...
+:waitloop
+tasklist /FI "IMAGENAME eq AI Learning Assistant Launcher.exe" 2>NUL | find /I "AI Learning Assistant Launcher.exe" >NUL
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >nul
+    goto waitloop
+)
+
+echo [更新] 应用已退出，开始更新...
+
+:: 创建临时目录
+if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
+if not exist "%EXTRACT_DIR%" mkdir "%EXTRACT_DIR%"
+
+:: 备份 external-resources
+echo [更新] 备份用户数据...
+if exist "%APP_DIR%\\external-resources" (
+    xcopy "%APP_DIR%\\external-resources" "%BACKUP_DIR%\\" /E /I /H /Y /Q
+)
+
+:: 解压 ZIP 文件
+echo [更新] 解压更新包...
+powershell -Command "Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%EXTRACT_DIR%' -Force"
+
+:: 查找解压后的目录（ZIP 内可能有一层目录）
+for /d %%D in ("%EXTRACT_DIR%\\*") do set "SOURCE_DIR=%%D"
+if not defined SOURCE_DIR set "SOURCE_DIR=%EXTRACT_DIR%"
+
+:: 删除旧文件（保留 external-resources）
+echo [更新] 清理旧版本...
+for /d %%D in ("%APP_DIR%\\*") do (
+    if /I not "%%~nxD"=="external-resources" rd /s /q "%%D" 2>nul
+)
+for %%F in ("%APP_DIR%\\*") do (
+    del /f /q "%%F" 2>nul
+)
+
+:: 复制新文件
+echo [更新] 安装新版本...
+xcopy "%SOURCE_DIR%\\*" "%APP_DIR%\\" /E /I /H /Y /Q
+
+:: 恢复 external-resources（合并）
+echo [更新] 恢复用户数据...
+if exist "%BACKUP_DIR%" (
+    xcopy "%BACKUP_DIR%\\*" "%APP_DIR%\\external-resources\\" /E /I /H /Y /Q
+)
+
+:: 清理临时文件
+echo [更新] 清理临时文件...
+rd /s /q "%TEMP_DIR%" 2>nul
+
+:: 启动新版本
+echo [更新] 启动新版本...
+start "" "%APP_DIR%\\AI Learning Assistant Launcher.exe"
+
+exit
+`;
+
+  // 确保临时目录存在
+  if (!existsSync(tempDir)) {
+    mkdirSync(tempDir, { recursive: true });
+  }
+
+  const scriptPath = path.join(tempDir, 'update.bat');
+  await writeFile(scriptPath, scriptContent, { encoding: 'utf8' });
+
+  await writeUpdateLog('INFO', '[generateUpdateScript] 更新脚本已生成', {
+    scriptPath,
+    zipPath,
+    appDir,
+    tempDir,
+    newVersion,
   });
 
-  return releasesPath;
+  return scriptPath;
 }
 
 /**
@@ -331,10 +374,7 @@ async function waitForFileRelease(filePath: string): Promise<void> {
 }
 
 export async function installLauncherUpdate() {
-  await writeUpdateLog(
-    'INFO',
-    '[installLauncherUpdate] 开始执行 Squirrel 更新',
-  );
+  await writeUpdateLog('INFO', '[installLauncherUpdate] 开始执行自定义更新');
 
   // 如果是开发模式，不执行更新
   const isPackaged = app.isPackaged;
@@ -349,26 +389,8 @@ export async function installLauncherUpdate() {
     };
   }
 
-  // 检查是否为 Squirrel 安装
-  const updateExePath = getSquirrelUpdateExePath();
-  if (!updateExePath) {
-    await writeUpdateLog(
-      'WARN',
-      '[installLauncherUpdate] 未检测到 Squirrel 安装，无法使用 Squirrel 更新',
-    );
-    return {
-      success: false,
-      message: '当前安装方式不支持 Squirrel 自动更新，请手动下载安装包更新',
-    };
-  }
-
-  await writeUpdateLog(
-    'DEBUG',
-    '[installLauncherUpdate] 检测到 Update.exe:',
-    updateExePath,
-  );
-
   try {
+    // 获取最新版本信息
     await writeUpdateLog(
       'DEBUG',
       '[installLauncherUpdate] 获取最新版本信息...',
@@ -379,6 +401,7 @@ export async function installLauncherUpdate() {
     const version = latestVersionInfo.version;
     await writeUpdateLog('DEBUG', '[installLauncherUpdate] 最新版本:', version);
 
+    // 下载目录
     const downloadPath = path.join(
       appPath,
       'external-resources',
@@ -391,17 +414,13 @@ export async function installLauncherUpdate() {
       '[installLauncherUpdate] 下载路径:',
       downloadPath,
     );
-    await writeUpdateLog(
-      'DEBUG',
-      '[installLauncherUpdate] 下载路径是否存在:',
-      existsSync(downloadPath),
-    );
 
     if (!existsSync(downloadPath)) {
       await writeUpdateLog('ERROR', '[installLauncherUpdate] 下载目录不存在');
       throw new Error('更新包未下载，请先下载更新包');
     }
 
+    // 查找 ZIP 文件
     const files = await readdir(downloadPath);
     await writeUpdateLog(
       'DEBUG',
@@ -409,21 +428,20 @@ export async function installLauncherUpdate() {
       files,
     );
 
-    // 查找 .nupkg 文件
-    const nupkgFile = files.find((f) => f.endsWith('.nupkg'));
-    if (!nupkgFile) {
+    const zipFile = files.find((f) => f.endsWith('.zip'));
+    if (!zipFile) {
       await writeUpdateLog(
         'ERROR',
-        '[installLauncherUpdate] 未找到 .nupkg 更新包',
+        '[installLauncherUpdate] 未找到 .zip 更新包',
       );
-      throw new Error('未找到 .nupkg 更新包');
+      throw new Error('未找到 .zip 更新包');
     }
 
-    const nupkgPath = path.join(downloadPath, nupkgFile);
+    const zipPath = path.join(downloadPath, zipFile);
     await writeUpdateLog(
       'DEBUG',
-      '[installLauncherUpdate] nupkg 文件路径:',
-      nupkgPath,
+      '[installLauncherUpdate] ZIP 文件路径:',
+      zipPath,
     );
 
     // 销毁 WebTorrent 以释放文件句柄
@@ -434,15 +452,16 @@ export async function installLauncherUpdate() {
     await destroyWebtorrentForInstall(latestVersionInfo.dlcInfo.magnet);
 
     // 使用重试机制等待文件句柄释放
-    await waitForFileRelease(nupkgPath);
+    await waitForFileRelease(zipPath);
     await writeUpdateLog('DEBUG', '[installLauncherUpdate] 文件句柄已释放');
 
-    // 生成 RELEASES 文件（Squirrel 需要此文件来确定更新信息）
-    await writeUpdateLog(
-      'INFO',
-      '[installLauncherUpdate] 生成 RELEASES 文件...',
-    );
-    await generateReleasesFile(nupkgPath, downloadPath);
+    // 获取应用目录和临时目录
+    const exePath = app.getPath('exe');
+    const appDir = path.dirname(exePath);
+    const tempDir = path.join(app.getPath('temp'), 'launcher-update');
+
+    await writeUpdateLog('DEBUG', '[installLauncherUpdate] 应用目录:', appDir);
+    await writeUpdateLog('DEBUG', '[installLauncherUpdate] 临时目录:', tempDir);
 
     // 显示更新确认对话框
     const result = await dialog.showMessageBox({
@@ -455,56 +474,59 @@ export async function installLauncherUpdate() {
       cancelId: 1,
     });
 
-    if (result.response === 0) {
-      await writeUpdateLog(
-        'INFO',
-        '[installLauncherUpdate] 用户确认更新，准备执行 Squirrel 更新',
-      );
-
-      // 使用 Squirrel 的 Update.exe 执行更新
-      // 参数 --update=<path> 指定包含 RELEASES 和 .nupkg 的目录
-      await writeUpdateLog(
-        'INFO',
-        '[installLauncherUpdate] 调用 Squirrel Update.exe',
-        {
-          updateExePath,
-          updatePath: downloadPath,
-        },
-      );
-
-      const updateProcess = spawn(updateExePath, ['--update', downloadPath], {
-        detached: true,
-        stdio: 'ignore',
-      });
-
-      updateProcess.unref();
-      await writeUpdateLog(
-        'INFO',
-        '[installLauncherUpdate] Squirrel 更新进程已启动',
-      );
-
-      // 延迟退出应用，让 Squirrel 接管更新流程
-      setTimeout(async () => {
-        await writeUpdateLog('INFO', '[installLauncherUpdate] 准备退出应用');
-        // Squirrel 会在更新完成后自动重启应用
-        app.quit();
-      }, 1500);
-
-      return {
-        success: true,
-        message: '正在通过 Squirrel 更新启动器...',
-      };
-    } else {
+    if (result.response !== 0) {
       await writeUpdateLog('INFO', '[installLauncherUpdate] 用户取消更新');
       return {
         success: false,
         message: '用户取消更新',
       };
     }
+
+    await writeUpdateLog(
+      'INFO',
+      '[installLauncherUpdate] 用户确认更新，准备执行自定义更新',
+    );
+
+    // 生成更新脚本
+    const scriptPath = await generateUpdateScript(
+      zipPath,
+      appDir,
+      tempDir,
+      version,
+    );
+
+    await writeUpdateLog(
+      'INFO',
+      '[installLauncherUpdate] 启动更新脚本:',
+      scriptPath,
+    );
+
+    // 启动更新脚本
+    const updateProcess = spawn('cmd.exe', ['/c', scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    updateProcess.unref();
+
+    await writeUpdateLog(
+      'INFO',
+      '[installLauncherUpdate] 更新脚本已启动，准备退出应用',
+    );
+
+    // 延迟退出应用
+    setTimeout(() => {
+      app.quit();
+    }, 1000);
+
+    return {
+      success: true,
+      message: '正在更新启动器...',
+    };
   } catch (error) {
     await writeUpdateLog(
       'ERROR',
-      '[installLauncherUpdate] Squirrel 更新失败',
+      '[installLauncherUpdate] 自定义更新失败',
       error instanceof Error
         ? { message: error.message, stack: error.stack }
         : error,
