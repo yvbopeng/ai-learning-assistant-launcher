@@ -14,13 +14,15 @@ import {
 import semver from 'semver';
 import path from 'path';
 import { appPath } from '../exec';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import {
   readdir,
   writeFile,
   appendFile,
   access,
   rename,
+  stat,
+  unlink,
   constants,
 } from 'fs/promises';
 import { spawn } from 'child_process';
@@ -30,6 +32,12 @@ const currentVersion = packageJson.version;
 
 // 更新日志文件路径
 const updateLogPath = path.join(appPath, 'launcher-update.log');
+const updateLogBackupPath = path.join(appPath, 'launcher-update.log.old');
+
+// 日志滚动配置
+const LOG_ROTATION_CONFIG = {
+  MAX_SIZE_BYTES: 1 * 1024 * 1024, // 1MB
+};
 
 /**
  * 写入更新日志到文件
@@ -77,9 +85,36 @@ async function writeUpdateLog(
 }
 
 /**
- * 初始化日志文件（清空旧日志或添加分隔符）
+ * 初始化日志文件（检查大小并执行滚动）
+ * 当日志文件超过 MAX_SIZE_BYTES 时，将旧日志重命名为 .old 文件
  */
 async function initUpdateLog() {
+  try {
+    // 检查日志文件是否存在及其大小
+    if (existsSync(updateLogPath)) {
+      const stats = await stat(updateLogPath);
+
+      if (stats.size >= LOG_ROTATION_CONFIG.MAX_SIZE_BYTES) {
+        // 删除旧的备份文件（如果存在）
+        try {
+          await unlink(updateLogBackupPath);
+        } catch {
+          // 备份文件不存在，忽略
+        }
+
+        // 将当前日志重命名为备份
+        await rename(updateLogPath, updateLogBackupPath);
+
+        console.log(
+          `[initUpdateLog] 日志文件已滚动，旧日志大小: ${(stats.size / 1024).toFixed(2)} KB`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[initUpdateLog] 日志滚动检查失败:', err);
+  }
+
+  // 添加分隔符
   const separator = `
 ${'='.repeat(60)}
 [${new Date().toISOString()}] 启动器更新日志开始
@@ -104,6 +139,31 @@ export default async function init(ipcMain: IpcMain) {
   );
 }
 
+/**
+ * 清理更新临时目录
+ * 当已是最新版本时调用，清理之前更新留下的临时文件
+ */
+async function cleanupUpdateTempDir() {
+  const tempDir = path.join(app.getPath('temp'), 'launcher-update');
+
+  try {
+    if (existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+      await writeUpdateLog(
+        'INFO',
+        '[cleanupUpdateTempDir] 已清理更新临时目录',
+        { tempDir },
+      );
+    }
+  } catch (err) {
+    await writeUpdateLog(
+      'WARN',
+      '[cleanupUpdateTempDir] 清理更新临时目录失败',
+      err instanceof Error ? { message: err.message } : err,
+    );
+  }
+}
+
 export async function checkLauncherUpdate() {
   await initUpdateLog();
   await writeUpdateLog('INFO', '[checkLauncherUpdate] 开始检查启动器更新');
@@ -113,6 +173,26 @@ export async function checkLauncherUpdate() {
       'AI_LEARNING_ASSISTANT_LAUNCHER',
     );
     const latestVersion = latestVersionInfo.version;
+
+    // 版本号规范校验
+    if (!semver.valid(currentVersion)) {
+      await writeUpdateLog(
+        'ERROR',
+        '[checkLauncherUpdate] 当前版本号格式无效',
+        { currentVersion },
+      );
+      throw new Error(`当前版本号格式无效: ${currentVersion}`);
+    }
+
+    if (!semver.valid(latestVersion)) {
+      await writeUpdateLog(
+        'ERROR',
+        '[checkLauncherUpdate] 最新版本号格式无效',
+        { latestVersion },
+      );
+      throw new Error(`最新版本号格式无效: ${latestVersion}`);
+    }
+
     const haveNew = semver.lt(currentVersion, latestVersion);
 
     await writeUpdateLog('INFO', '[checkLauncherUpdate] 检查启动器更新完成', {
@@ -120,6 +200,11 @@ export async function checkLauncherUpdate() {
       latestVersion,
       haveNew,
     });
+
+    // 如果已是最新版本，清理更新临时目录
+    if (!haveNew) {
+      await cleanupUpdateTempDir();
+    }
 
     return {
       currentVersion,
@@ -150,16 +235,23 @@ export async function downloadLauncherUpdate() {
       'AI_LEARNING_ASSISTANT_LAUNCHER',
     );
 
+    // 空值检查：确保 dlcInfo 和 magnet 存在
+    if (!latestVersionInfo.dlcInfo?.magnet) {
+      throw new Error('未找到有效的更新包信息（dlcInfo 或 magnet 缺失）');
+    }
+
+    const { magnet } = latestVersionInfo.dlcInfo;
+
     await writeUpdateLog(
       'DEBUG',
       '[downloadLauncherUpdate] 获取到最新版本信息',
       {
         version: latestVersionInfo.version,
-        magnet: latestVersionInfo.dlcInfo?.magnet?.substring(0, 50) + '...',
+        magnet: magnet.substring(0, 50) + '...',
       },
     );
 
-    await startWebtorrent(latestVersionInfo.dlcInfo.magnet);
+    await startWebtorrent(magnet);
     await writeUpdateLog('DEBUG', '[downloadLauncherUpdate] WebTorrent 已启动');
 
     const torrent = await waitTorrentDone(
@@ -206,7 +298,13 @@ export async function downloadLauncherUpdate() {
 
 /**
  * 生成自定义更新批处理脚本
- * 脚本功能：等待应用退出、备份用户数据、解压更新包、替换文件、恢复数据、启动新版本
+ * 脚本功能：等待应用退出、解压更新包、校验完整性、备份旧版本、替换文件、恢复数据、启动新版本
+ *
+ * 安全策略：采用"解压 -> 校验 -> 备份 -> 替换"模式
+ * 1. 先在临时目录完整解压并校验
+ * 2. 校验失败则直接启动旧版本，不做任何修改
+ * 3. 校验成功后备份整个旧版本目录
+ * 4. 替换失败时可从备份恢复
  */
 async function generateUpdateScript(
   zipPath: string,
@@ -222,9 +320,14 @@ set "ZIP_PATH=${zipPath.replace(/\//g, '\\')}"
 set "APP_DIR=${appDir.replace(/\//g, '\\')}"
 set "TEMP_DIR=${tempDir.replace(/\//g, '\\')}"
 set "BACKUP_DIR=${tempDir.replace(/\//g, '\\')}\\external-resources-backup"
+set "APP_BACKUP_DIR=${tempDir.replace(/\//g, '\\')}\\app-backup"
 set "EXTRACT_DIR=${tempDir.replace(/\//g, '\\')}\\extracted"
+set "UPDATE_LOG=${tempDir.replace(/\//g, '\\')}\\update-script.log"
 
-echo [更新] 等待应用退出...
+:: 日志函数
+call :log "========== 更新脚本开始 =========="
+
+call :log "等待应用退出..."
 :waitloop
 tasklist /FI "IMAGENAME eq AI Learning Assistant Launcher.exe" 2>NUL | find /I "AI Learning Assistant Launcher.exe" >NUL
 if not errorlevel 1 (
@@ -232,54 +335,142 @@ if not errorlevel 1 (
     goto waitloop
 )
 
-echo [更新] 应用已退出，开始更新...
+call :log "应用已退出，开始更新..."
 
-:: 创建临时目录
-if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
-if not exist "%EXTRACT_DIR%" mkdir "%EXTRACT_DIR%"
+:: ========== 阶段1: 准备和解压 ==========
+call :log "[阶段1] 准备临时目录..."
+if exist "%TEMP_DIR%" rd /s /q "%TEMP_DIR%" 2>nul
+mkdir "%TEMP_DIR%"
+mkdir "%EXTRACT_DIR%"
 
-:: 备份 external-resources
-echo [更新] 备份用户数据...
-if exist "%APP_DIR%\\external-resources" (
-    xcopy "%APP_DIR%\\external-resources" "%BACKUP_DIR%\\" /E /I /H /Y /Q
+call :log "[阶段1] 解压更新包到临时目录..."
+powershell -Command "try { Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%EXTRACT_DIR%' -Force -ErrorAction Stop; exit 0 } catch { Write-Host $_.Exception.Message; exit 1 }"
+if errorlevel 1 (
+    call :log "[错误] 解压失败！启动旧版本..."
+    goto :launch_old_version
 )
 
-:: 解压 ZIP 文件
-echo [更新] 解压更新包...
-powershell -Command "Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%EXTRACT_DIR%' -Force"
-
 :: 查找解压后的目录（ZIP 内可能有一层目录）
+set "SOURCE_DIR="
 for /d %%D in ("%EXTRACT_DIR%\\*") do set "SOURCE_DIR=%%D"
 if not defined SOURCE_DIR set "SOURCE_DIR=%EXTRACT_DIR%"
 
-:: 删除旧文件（保留 external-resources）
-echo [更新] 清理旧版本...
+call :log "[阶段1] 解压完成，源目录: %SOURCE_DIR%"
+
+:: ========== 阶段2: 校验解压完整性 ==========
+call :log "[阶段2] 校验更新包完整性..."
+
+:: 检查关键文件是否存在
+if not exist "%SOURCE_DIR%\\AI Learning Assistant Launcher.exe" (
+    call :log "[错误] 校验失败：主程序文件不存在！启动旧版本..."
+    goto :launch_old_version
+)
+
+if not exist "%SOURCE_DIR%\\resources" (
+    call :log "[错误] 校验失败：resources 目录不存在！启动旧版本..."
+    goto :launch_old_version
+)
+
+call :log "[阶段2] 校验通过，更新包完整"
+
+:: ========== 阶段3: 备份用户数据和旧版本 ==========
+call :log "[阶段3] 备份用户数据 external-resources..."
+if exist "%APP_DIR%\\external-resources" (
+    xcopy "%APP_DIR%\\external-resources" "%BACKUP_DIR%\\" /E /I /H /Y /Q >nul 2>&1
+    if errorlevel 1 (
+        call :log "[警告] 用户数据备份可能不完整"
+    ) else (
+        call :log "[阶段3] 用户数据备份完成"
+    )
+)
+
+call :log "[阶段3] 备份旧版本应用..."
+mkdir "%APP_BACKUP_DIR%" 2>nul
+xcopy "%APP_DIR%\\*" "%APP_BACKUP_DIR%\\" /E /I /H /Y /Q >nul 2>&1
+if errorlevel 1 (
+    call :log "[警告] 旧版本备份可能不完整，但继续更新"
+) else (
+    call :log "[阶段3] 旧版本备份完成"
+)
+
+:: ========== 阶段4: 替换文件 ==========
+call :log "[阶段4] 清理旧版本文件（保留 external-resources）..."
 for /d %%D in ("%APP_DIR%\\*") do (
-    if /I not "%%~nxD"=="external-resources" rd /s /q "%%D" 2>nul
+    if /I not "%%~nxD"=="external-resources" (
+        rd /s /q "%%D" 2>nul
+    )
 )
 for %%F in ("%APP_DIR%\\*") do (
     del /f /q "%%F" 2>nul
 )
 
-:: 复制新文件
-echo [更新] 安装新版本...
-xcopy "%SOURCE_DIR%\\*" "%APP_DIR%\\" /E /I /H /Y /Q
-
-:: 恢复 external-resources（合并）
-echo [更新] 恢复用户数据...
-if exist "%BACKUP_DIR%" (
-    xcopy "%BACKUP_DIR%\\*" "%APP_DIR%\\external-resources\\" /E /I /H /Y /Q
+call :log "[阶段4] 安装新版本..."
+xcopy "%SOURCE_DIR%\\*" "%APP_DIR%\\" /E /I /H /Y /Q >nul 2>&1
+if errorlevel 1 (
+    call :log "[错误] 复制新文件失败！尝试从备份恢复..."
+    goto :restore_from_backup
 )
 
-:: 清理临时文件
-echo [更新] 清理临时文件...
-rd /s /q "%TEMP_DIR%" 2>nul
+:: 验证安装结果
+if not exist "%APP_DIR%\\AI Learning Assistant Launcher.exe" (
+    call :log "[错误] 安装验证失败：主程序不存在！尝试从备份恢复..."
+    goto :restore_from_backup
+)
 
-:: 启动新版本
-echo [更新] 启动新版本...
+call :log "[阶段4] 新版本安装完成"
+
+:: ========== 阶段5: 恢复用户数据 ==========
+call :log "[阶段5] 恢复用户数据..."
+if exist "%BACKUP_DIR%" (
+    xcopy "%BACKUP_DIR%\\*" "%APP_DIR%\\external-resources\\" /E /I /H /Y /Q >nul 2>&1
+    call :log "[阶段5] 用户数据恢复完成"
+)
+
+:: ========== 阶段6: 清理和启动 ==========
+call :log "[阶段6] 更新成功！清理临时文件..."
+:: 延迟删除临时目录，避免影响日志
+start /b cmd /c "timeout /t 5 /nobreak >nul & rd /s /q "%TEMP_DIR%" 2>nul"
+
+call :log "[阶段6] 启动新版本..."
+call :log "========== 更新脚本结束 =========="
 start "" "%APP_DIR%\\AI Learning Assistant Launcher.exe"
-
 exit
+
+:: ========== 错误处理: 从备份恢复 ==========
+:restore_from_backup
+call :log "[恢复] 开始从备份恢复旧版本..."
+if exist "%APP_BACKUP_DIR%\\AI Learning Assistant Launcher.exe" (
+    :: 清理可能的残留
+    for /d %%D in ("%APP_DIR%\\*") do rd /s /q "%%D" 2>nul
+    for %%F in ("%APP_DIR%\\*") do del /f /q "%%F" 2>nul
+    
+    :: 恢复备份
+    xcopy "%APP_BACKUP_DIR%\\*" "%APP_DIR%\\" /E /I /H /Y /Q >nul 2>&1
+    if exist "%APP_DIR%\\AI Learning Assistant Launcher.exe" (
+        call :log "[恢复] 旧版本恢复成功"
+        goto :launch_old_version
+    )
+)
+call :log "[恢复] 恢复失败，请手动重新安装应用"
+pause
+exit
+
+:: ========== 错误处理: 启动旧版本 ==========
+:launch_old_version
+call :log "[回退] 启动旧版本..."
+if exist "%APP_DIR%\\AI Learning Assistant Launcher.exe" (
+    start "" "%APP_DIR%\\AI Learning Assistant Launcher.exe"
+) else (
+    call :log "[错误] 旧版本也不存在，请手动重新安装"
+    pause
+)
+exit
+
+:: ========== 日志函数 ==========
+:log
+echo [%date% %time%] %~1
+echo [%date% %time%] %~1 >> "%UPDATE_LOG%" 2>nul
+exit /b 0
 `;
 
   // 确保临时目录存在
@@ -398,6 +589,13 @@ export async function installLauncherUpdate() {
     const latestVersionInfo = getLatestVersion(
       'AI_LEARNING_ASSISTANT_LAUNCHER',
     );
+
+    // 空值检查：确保 dlcInfo 和 magnet 存在
+    if (!latestVersionInfo.dlcInfo?.magnet) {
+      throw new Error('未找到有效的更新包信息（dlcInfo 或 magnet 缺失）');
+    }
+
+    const { magnet } = latestVersionInfo.dlcInfo;
     const version = latestVersionInfo.version;
     await writeUpdateLog('DEBUG', '[installLauncherUpdate] 最新版本:', version);
 
@@ -449,7 +647,7 @@ export async function installLauncherUpdate() {
       'DEBUG',
       '[installLauncherUpdate] 销毁 WebTorrent 释放文件句柄...',
     );
-    await destroyWebtorrentForInstall(latestVersionInfo.dlcInfo.magnet);
+    await destroyWebtorrentForInstall(magnet);
 
     // 使用重试机制等待文件句柄释放
     await waitForFileRelease(zipPath);
