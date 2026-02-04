@@ -554,25 +554,67 @@ function Remove-OldFiles {
 }
 
 try {
-    # Initial delay to ensure Electron process has fully exited
-    Start-Sleep -Seconds 2
-    
+    # ===== Self-Healing Phase: Ensure script has fully detached from parent process control =====
     Write-Log "========== Launcher Update Script Started =========="
+    Write-Log "Script has entered execution phase (self-healing check)"
     Write-Log "Target Version: $Version"
     Write-Log "ZIP Path: $ZipPath"
     Write-Log "App Directory: $AppDir"
     Write-Log "Parent PID: $ParentPid"
     Write-Log "Update Strategy: Polling Rename + Temporary File Replacement"
+    
+    # Initial wait: Ensure Electron main process completes exit sequence
+    Write-Log "Initial delay: waiting for Electron to complete exit sequence..."
+    Start-Sleep -Seconds 2
+    
+    # ===== Self-Healing Code: Force terminate parent if still alive =====
+    # This is a fail-safe mechanism to handle cases where main process failed to exit properly
+    Write-Log "Self-healing check: verifying parent process status..."
+    try {
+        $parentProc = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
+        if ($null -ne $parentProc) {
+            Write-Log "[Self-Healing] Parent process still alive, attempting force termination PID: $ParentPid"
+            Write-Log "[Self-Healing] Process Name: $($parentProc.ProcessName), StartTime: $($parentProc.StartTime)"
+            
+            # Try graceful close first
+            try {
+                $parentProc.CloseMainWindow() | Out-Null
+                Start-Sleep -Seconds 2
+            } catch {
+                Write-Log "[Self-Healing] CloseMainWindow failed, will force kill"
+            }
+            
+            # Check if already exited
+            $parentProc = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
+            if ($null -ne $parentProc) {
+                Write-Log "[Self-Healing] Force terminating parent process..."
+                Stop-Process -Id $ParentPid -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 1
+            }
+            
+            Write-Log "[Self-Healing] Parent process termination completed"
+        } else {
+            Write-Log "[Self-Healing] Parent process already exited, good"
+        }
+    } catch {
+        Write-Log "[Self-Healing] Exception during parent check (likely already exited): $($_.Exception.Message)"
+    }
 
-    # Wait for parent process to exit
-    Write-Log "Waiting for main process to exit..."
+    # ===== Formally wait for parent process to exit =====
+    Write-Log "Waiting for main process to fully exit..."
     $waitCount = 0
     while ($waitCount -lt $MaxWaitSeconds) {
         try {
             $proc = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
             if ($null -eq $proc) {
-                Write-Log "Main process exited"
+                Write-Log "Main process confirmed exited"
                 break
+            }
+            
+            # If still alive after 10 seconds, try force kill again
+            if ($waitCount -eq 10) {
+                Write-Log "[Fallback] Process still alive after 10s, force killing..."
+                Stop-Process -Id $ParentPid -Force -ErrorAction SilentlyContinue
             }
         } catch {
             Write-Log "Main process exited (exception detected)"
@@ -586,8 +628,8 @@ try {
     }
 
     if ($waitCount -ge $MaxWaitSeconds) {
-        Write-Log "[ERROR] Timeout waiting for main process to exit"
-        exit 1
+        Write-Log "[ERROR] Timeout waiting for main process to exit, proceeding anyway..."
+        # No longer exit 1, continue with update as it might be PID reuse false positive
     }
 
     # ===== Polling rename critical files =====
@@ -944,80 +986,152 @@ export async function installLauncherUpdate() {
 
     await writeUpdateLog(
       'INFO',
-      '[installLauncherUpdate] 启动更新脚本 (使用 cmd start 模式)...',
+      '[installLauncherUpdate] 启动更新脚本 (使用 Start-Process 脱离 Job Object)...',
     );
 
-    // 关键改动：通过 cmd /c start 启动，这会创建一个完全独立的进程环境
-    // 支持 UPDATE_DEBUG 环境变量控制窗口显示（用于调试）
+    // ===== 关键：使用 PowerShell Start-Process 脱离 Job Object =====
+    // Windows 会将子进程绑定到父进程的 Job Object 中，父进程退出时子进程也会被终止
+    // 通过 PowerShell 的 Start-Process 启动的进程不会继承 Job Object，完全独立
     const isDebugMode = process.env.UPDATE_DEBUG === '1';
-    const args = isDebugMode
-      ? [
-          '/c',
-          'start',
-          'powershell.exe',
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-File',
-          `"${scriptPath}"`,
-        ]
-      : [
-          '/c',
-          'start',
-          '/min', // 最小化运行，避免弹窗骚扰用户
-          'powershell.exe',
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-File',
-          `"${scriptPath}"`,
-        ];
+    const windowStyle = isDebugMode ? 'Normal' : 'Hidden';
 
-    const updateProcess = spawn('cmd.exe', args, {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: !isDebugMode,
-    });
+    // 构建 Start-Process 命令，启动一个完全独立的 PowerShell 进程
+    // -PassThru 返回进程对象以便获取 PID
+    // 转义路径中的单引号
+    const escapedScriptPath = scriptPath.replace(/'/g, "''");
+    const startProcessCommand = `
+      $p = Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','${windowStyle}','-File','${escapedScriptPath}' -WindowStyle ${windowStyle} -PassThru;
+      Write-Output $p.Id;
+    `.trim();
+
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      startProcessCommand,
+    ];
 
     await writeUpdateLog(
-      'INFO',
+      'DEBUG',
       `[installLauncherUpdate] 启动参数: 调试模式=${isDebugMode}`,
       {
-        command: 'cmd.exe',
-        args: args.join(' '),
-        windowsHide: !isDebugMode,
+        command: 'powershell.exe',
+        startProcessCommand,
+        windowStyle,
       },
     );
+
+    // 使用 spawn 同步等待获取新进程的 PID
+    const updateProcess = spawn('powershell.exe', args, {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'], // 捕获 stdout 以获取 PID
+      windowsHide: true, // 启动器进程本身隐藏
+    });
 
     // 检查进程是否成功启动
     if (!updateProcess.pid) {
       await writeUpdateLog(
         'ERROR',
-        '[installLauncherUpdate] 更新中转进程启动失败，未获取到 PID',
+        '[installLauncherUpdate] 启动器进程启动失败，未获取到 PID',
       );
       throw new Error('无法启动更新引导进程');
     }
 
-    // 监听进程错误
-    updateProcess.on('error', async (err) => {
-      await writeUpdateLog(
-        'ERROR',
-        '[installLauncherUpdate] 更新中转进程启动时出错',
-        {
-          error: err.message,
-          stack: err.stack,
-        },
-      );
+    // 收集 stdout 输出以获取实际更新脚本的 PID
+    let stdoutData = '';
+    let stderrData = '';
+
+    updateProcess.stdout?.on('data', (data: Buffer) => {
+      stdoutData += data.toString();
     });
 
-    updateProcess.unref();
+    updateProcess.stderr?.on('data', (data: Buffer) => {
+      stderrData += data.toString();
+    });
 
-    await writeUpdateLog('INFO', '[installLauncherUpdate] 更新中转进程已启动', {
-      pid: updateProcess.pid,
+    // 监听进程错误
+    updateProcess.on('error', async (err) => {
+      await writeUpdateLog('ERROR', '[installLauncherUpdate] 启动器进程出错', {
+        error: err.message,
+        stack: err.stack,
+      });
+    });
+
+    // 等待 Start-Process 命令完成并获取新进程 PID
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('启动更新进程超时'));
+      }, 10000);
+
+      updateProcess.on('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`启动器进程退出码: ${code}, stderr: ${stderrData}`));
+        }
+      });
+    });
+
+    // 解析输出获取新进程 PID
+    const launchedPid = parseInt(stdoutData.trim(), 10);
+
+    if (isNaN(launchedPid) || launchedPid <= 0) {
+      await writeUpdateLog(
+        'ERROR',
+        '[installLauncherUpdate] 无法获取更新脚本进程 PID',
+        { stdout: stdoutData, stderr: stderrData },
+      );
+      throw new Error('无法获取更新脚本进程 PID');
+    }
+
+    await writeUpdateLog('INFO', '[installLauncherUpdate] 独立更新进程已启动', {
+      launchedPid,
       scriptPath,
     });
 
-    // 给系统 1 秒钟完成进程创建和初始化
+    // ===== 验证独立进程确实在运行 =====
+    const maxVerifyAttempts = 10;
+    const verifyIntervalMs = 300;
+    let verified = false;
+
+    for (let i = 0; i < maxVerifyAttempts; i++) {
+      await new Promise((resolve) => setTimeout(resolve, verifyIntervalMs));
+
+      try {
+        // signal 0 只检查进程是否存在，不发送信号
+        process.kill(launchedPid, 0);
+        verified = true;
+        await writeUpdateLog(
+          'DEBUG',
+          `[installLauncherUpdate] 进程验证成功 (尝试 ${i + 1}/${maxVerifyAttempts})`,
+          { pid: launchedPid },
+        );
+        break;
+      } catch {
+        await writeUpdateLog(
+          'WARN',
+          `[installLauncherUpdate] 进程验证中 (尝试 ${i + 1}/${maxVerifyAttempts})`,
+          { pid: launchedPid },
+        );
+      }
+    }
+
+    if (!verified) {
+      await writeUpdateLog(
+        'ERROR',
+        '[installLauncherUpdate] 更新进程验证失败，进程可能未成功启动',
+      );
+      throw new Error('更新进程启动验证失败');
+    }
+
+    await writeUpdateLog(
+      'INFO',
+      '[installLauncherUpdate] 更新进程验证通过，准备退出主进程',
+    );
+
+    // 额外等待确保 PowerShell 脚本开始执行
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     await writeUpdateLog('INFO', '[installLauncherUpdate] 准备退出应用...');
