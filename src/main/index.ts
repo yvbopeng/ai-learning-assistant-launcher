@@ -14,6 +14,7 @@ import initTrainingService from './training-service';
 import initLogService from './backup';
 import initExternalUrl from './external-url';
 import initDLC from './dlc';
+import initRTSService from './local-service/rts-service';
 import path from 'node:path';
 import { appPath, autoAdaptEncodingForWindows } from './exec';
 import { logDeviceInfo } from './logger/log-device-info';
@@ -81,6 +82,7 @@ initPdfConvert(ipcMain);
 initTrainingService(ipcMain);
 initExternalUrl(ipcMain);
 initDLC(ipcMain);
+initRTSService(ipcMain);
 updateTemplate();
 
 const createWindow = async () => {
